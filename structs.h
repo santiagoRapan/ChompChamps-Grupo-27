@@ -16,15 +16,15 @@ typedef struct {
     unsigned int invalid_moves; // Cantidad de solicitudes de movimientos inválidas realizadas
     unsigned int valid_moves; // Cantidad de solicitudes de movimientos válidas realizadas
     unsigned short x, y; // Coordenadas x e y en el tablero
-    pid_t process_id; // Identificador de proceso
+    pid_t pid; // Identificador de proceso
     bool blocked; // Indica si el jugador está bloqueado
 } player_t;
 
 typedef struct {
     unsigned short width; // Ancho del tablero
     unsigned short height; // Alto del tablero
-    unsigned int players_count; // Cantidad de jugadores
-    player players[MAX_PLAYERS]; // Lista de jugadores
+    unsigned int player_count; // Cantidad de jugadores
+    player_t players[MAX_PLAYERS]; // Lista de jugadores
     bool is_game_over; // Indica si el juego se ha terminado
     int board[]; // Puntero al comienzo del tablero. fila-0, fila-1, ..., fila-n-1
 } game_state_t;
