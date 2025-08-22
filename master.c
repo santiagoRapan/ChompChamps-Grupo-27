@@ -62,7 +62,7 @@ void parser(master_config_t* config, int argc, char *argv[]){
             config->view_path = argv[++i];
         } else if (strcmp(argv[i], "-p") == 0) {
 
-            while (i + 1 < argc && argv[i + 1][0] != '-' && config->player_count  MAX_PLAYERS) {
+            while (i + 1 < argc && argv[i + 1][0] != '-' && config->player_count < MAX_PLAYERS) {
                 config->player_paths[config->player_count++] = argv[++i];
             }
         }
@@ -124,7 +124,7 @@ pid_t create_player_process(const char* player_path, int player_id, master_confi
 
     if(pid == 0){
         close(pipefd[0]);
-        if(dup2(pipefd[1], STDOUT_FILENO)){
+        if(dup2(pipefd[1], STDOUT_FILENO)<0){
             perror("error haciendo el dup");
             exit(1);
         }
@@ -145,7 +145,6 @@ pid_t create_player_process(const char* player_path, int player_id, master_confi
     game_state->players[player_id].pid = pid;
     
     return pid;
-
 }
 
 
@@ -159,5 +158,9 @@ int main(int argc, char *argv[]){
         //clear_resources();
         return 1;
     }
+    for(int i=0; i<config.player_count; i++){
+        create_player_process(config.player_paths[i], i, &config);
+    }
+    return 0;
 }
 
