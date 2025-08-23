@@ -36,7 +36,7 @@ typedef struct {
     sem_t state_mutex; // Mutex para el estado del juego
     sem_t reader_count_mutex; // Mutex para la siguiente variable
     unsigned int readers_count; // Cantidad de jugadores leyendo el estado
-    sem_t playerTurn[MAX_PLAYERS]; // Le indican a cada jugador que puede enviar 1 movimiento
+    sem_t player_turn[MAX_PLAYERS]; // Le indican a cada jugador que puede enviar 1 movimiento
 } game_sync_t;
 
 typedef enum {
