@@ -1,0 +1,146 @@
+# Makefile para ChompChamps
+
+CC = gcc
+CFLAGS = -Wall -Wextra -Werror -std=c99 -pedantic -g -O2 -D_POSIX_C_SOURCE=200809L
+LDFLAGS = -lrt -lpthread
+VIEW_LDFLAGS = -lrt -lpthread -lncurses
+
+SRCDIR = src
+OBJDIR = obj
+BINDIR = bin
+
+# Archivos fuente
+COMMON_SOURCES = $(SRCDIR)/game_functions.c
+MASTER_SOURCES = $(SRCDIR)/master.c $(COMMON_SOURCES)
+VIEW_SOURCES = $(SRCDIR)/view.c $(COMMON_SOURCES)
+PLAYER_SOURCES = $(SRCDIR)/player.c $(COMMON_SOURCES)
+
+# Archivos objeto
+MASTER_OBJECTS = $(MASTER_SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+VIEW_OBJECTS = $(VIEW_SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+PLAYER_OBJECTS = $(PLAYER_SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+
+# Binarios
+MASTER_BIN = $(BINDIR)/master
+VIEW_BIN = $(BINDIR)/view
+PLAYER_BIN = $(BINDIR)/player
+
+# Regla por defecto
+all: directories $(MASTER_BIN) $(VIEW_BIN) $(PLAYER_BIN)
+
+# Crear directorios
+directories:
+	@mkdir -p $(OBJDIR) $(BINDIR)
+
+# Compilar binarios
+$(MASTER_BIN): $(MASTER_OBJECTS)
+	@echo "Linking master..."
+	$(CC) $(MASTER_OBJECTS) -o $@ $(LDFLAGS)
+
+$(VIEW_BIN): $(VIEW_OBJECTS)
+	@echo "Linking view with ncurses..."
+	$(CC) $(VIEW_OBJECTS) -o $@ $(VIEW_LDFLAGS)
+
+$(PLAYER_BIN): $(PLAYER_OBJECTS)
+	@echo "Linking player..."
+	$(CC) $(PLAYER_OBJECTS) -o $@ $(LDFLAGS)
+
+# Compilar archivos objeto
+$(OBJDIR)/%.o: $(SRCDIR)/%.c
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/%.o: $(SRCDIR)/%.c $(SRCDIR)/game_structs.h $(SRCDIR)/game_utils.h
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Limpiar archivos generados
+clean:
+	@echo "Cleaning build files..."
+	rm -rf $(OBJDIR) $(BINDIR)
+
+# Limpiar memoria compartida (útil para desarrollo)
+clean-shm:
+	@echo "Limpiando memoria compartida..."
+	@rm -f /dev/shm/game_state /dev/shm/game_sync 2>/dev/null || true
+	@ipcs -m | grep $(USER) | awk '{print $$2}' | xargs -r ipcrm -m 2>/dev/null || true
+	@ipcs -s | grep $(USER) | awk '{print $$2}' | xargs -r ipcrm -s 2>/dev/null || true
+
+docker-build: all
+	@echo "Build completed in Docker container"
+
+docker-test: all clean-shm
+	@echo "Running Docker container test..."
+	./$(MASTER_BIN) -w 12 -h 12 -d 300 -t 15 -v ./$(VIEW_BIN) -p ./$(PLAYER_BIN) ./$(PLAYER_BIN)
+
+# Reglas de prueba
+test: all clean-shm
+	@echo "Ejecutando prueba básica..."
+	./$(MASTER_BIN) -w 15 -h 15 -d 500 -t 30 -v ./$(VIEW_BIN) -p ./$(PLAYER_BIN) ./$(PLAYER_BIN)
+
+test-simple: all clean-shm
+	@echo "Ejecutando prueba simple (sin vista)..."
+	./$(MASTER_BIN) -w 10 -h 10 -d 200 -t 10 -p ./$(PLAYER_BIN)
+
+test-multi: all clean-shm
+	@echo "Testing with multiple players..."
+	./$(MASTER_BIN) -w 20 -h 15 -d 400 -t 25 -v ./$(VIEW_BIN) -p ./$(PLAYER_BIN) ./$(PLAYER_BIN) ./$(PLAYER_BIN)
+
+test-fast: all clean-shm
+	@echo "Fast test (quick development cycle)..."
+	./$(MASTER_BIN) -w 8 -h 8 -d 100 -t 5 -v ./$(VIEW_BIN) -p ./$(PLAYER_BIN)
+
+# Análisis con Valgrind
+valgrind-master: all clean-shm
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes \
+		./$(MASTER_BIN) -w 10 -h 10 -d 100 -t 5 -p ./$(PLAYER_BIN)
+
+valgrind-view: all clean-shm
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes \
+		./$(VIEW_BIN) 10 10
+
+valgrind-player: all clean-shm
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes \
+		./$(PLAYER_BIN) 10 10
+
+debug: CFLAGS += -DDEBUG -O0
+debug: all
+
+install: all
+	@echo "Installing binaries to /usr/local/bin (requires sudo)..."
+	sudo cp $(MASTER_BIN) $(VIEW_BIN) $(PLAYER_BIN) /usr/local/bin/
+
+# Información de uso
+help:
+	@echo "Makefile para ChompChamps - Docker Container Compatible"
+	@echo ""
+	@echo "Objetivos disponibles:"
+	@echo "  all           - Compilar todos los binarios"
+	@echo "  clean         - Limpiar archivos compilados"
+	@echo "  clean-shm     - Limpiar memoria compartida y semáforos"
+	@echo "  docker-build  - Build específico para contenedor Docker"
+	@echo "  docker-test   - Test optimizado para Docker"
+	@echo "  test          - Ejecutar prueba con vista"
+	@echo "  test-simple   - Ejecutar prueba sin vista"
+	@echo "  test-multi    - Prueba con múltiples jugadores"
+	@echo "  test-fast     - Prueba rápida para desarrollo"
+	@echo "  debug         - Compilar con símbolos de debug"
+	@echo "  valgrind-*    - Ejecutar análisis con Valgrind"
+	@echo "  install       - Instalar binarios en sistema"
+	@echo "  help          - Mostrar esta ayuda"
+	@echo ""
+	@echo "Uso en Docker:"
+	@echo "  docker run -it --rm -v \$$(pwd):/workspace agodio/itba-so-multi-platform:3.0 bash"
+	@echo "  cd /workspace/chompchamps-game"
+	@echo "  make docker-test"
+	@echo ""
+	@echo "Uso del máster:"
+	@echo "  ./bin/master [-w width] [-h height] [-d delay] [-t timeout] [-s seed] [-v view_path] -p player1 [player2 ...]"
+	@echo ""
+	@echo "Ejemplos:"
+	@echo "  make docker-test                    # Prueba completa en Docker"
+	@echo "  make test-fast                      # Desarrollo rápido"
+	@echo "  ./bin/master -w 15 -h 15 -v ./bin/view -p ./bin/player ./bin/player"
+
+.PHONY: all clean clean-shm test test-simple test-multi test-fast help directories \
+        valgrind-master valgrind-view valgrind-player debug install docker-build docker-test

@@ -5,25 +5,24 @@
 #include <semaphore.h>
 #include <stdlib.h>
 #include <time.h>
+#include <signal.h>
 #include "structs.h"
 #include "game_functions.h"
 
-
-#define COLOR_PLAYER_0 0
-#define COLOR_PLAYER_1 1
-#define COLOR_PLAYER_2 2
-#define COLOR_PLAYER_3 3
-#define COLOR_PLAYER_4 4
-#define COLOR_PLAYER_5 5
-#define COLOR_PLAYER_6 6
-#define COLOR_PLAYER_7 7
-#define COLOR_PLAYER_8 8
-#define COLOR_CELL_VALUE 9
-#define COLOR_CAPTURED 10
-#define COLOR_BORDER 11
-#define COLOR_HEADER 12
-#define COLOR_FINISHED 13
-
+#define COLOR_PLAYER_0 1
+#define COLOR_PLAYER_1 2
+#define COLOR_PLAYER_2 3
+#define COLOR_PLAYER_3 4
+#define COLOR_PLAYER_4 5
+#define COLOR_PLAYER_5 6
+#define COLOR_PLAYER_6 7
+#define COLOR_PLAYER_7 8
+#define COLOR_PLAYER_8 9
+#define COLOR_CELL_VALUE 10
+#define COLOR_CAPTURED 11
+#define COLOR_BORDER 12
+#define COLOR_HEADER 13
+#define COLOR_FINISHED 14
 
 static WINDOW *board_win = NULL;
 static WINDOW *status_win = NULL;
@@ -32,7 +31,9 @@ static WINDOW *info_win = NULL;
 static game_state_t* game_state = NULL;
 static game_sync_t* game_sync = NULL;
 
-void cleanup_view(){
+static volatile sig_atomic_t running = 1;
+
+void cleanup_view() {
     if(board_win) {
         delwin(board_win);
         board_win = NULL;
@@ -52,7 +53,33 @@ void cleanup_view(){
     cleanup_shared_memory(game_state, game_sync);
 }
 
-void init_ncurses() {
+void signal_handler(int sig) {
+    running = 0;
+    cleanup_view();
+    exit(0);
+}
+
+void read_lock() {
+    sem_wait(&game_sync->writer_mutex);      // Prevenir master starvation
+    sem_wait(&game_sync->reader_count_mutex); // Protejer reader counter
+    game_sync->readers_count++;              // Incrementar reader count
+    if (game_sync->readers_count == 1) {     // Primer lector?
+        sem_wait(&game_sync->state_mutex);   // Bloquear master de leer 
+    }
+    sem_post(&game_sync->reader_count_mutex); // Release counter protection
+    sem_post(&game_sync->writer_mutex);      // Permito otros lectores 
+}
+
+void read_unlock() {
+    sem_wait(&game_sync->reader_count_mutex); // Protejer reader counter
+    game_sync->readers_count--;              // Decrementar reader count
+    if (game_sync->readers_count == 0) {     // Ultimo lector?
+        sem_post(&game_sync->state_mutex);   // Permito master leer
+    }
+    sem_post(&game_sync->reader_count_mutex); // Release counter protection
+}
+
+int init_ncurses() {
     if(initscr() == NULL) {
         fprintf(stderr, "Error al inicializar ncurses\n");
         return -1;
@@ -61,21 +88,20 @@ void init_ncurses() {
     noecho();
     curs_set(0);
     
-    // Initialize colors if supported
     if (has_colors()) {
         start_color();
         use_default_colors(); // Permite usar el color de fondo por defecto del terminal
         
         // Definir colores para jugadores
-        init_pair(COLOR_PLAYER_1, COLOR_RED, COLOR_BLACK);
-        init_pair(COLOR_PLAYER_2, COLOR_BLUE, COLOR_BLACK);
-        init_pair(COLOR_PLAYER_3, COLOR_GREEN, COLOR_BLACK);
-        init_pair(COLOR_PLAYER_4, COLOR_YELLOW, COLOR_BLACK);
-        init_pair(COLOR_PLAYER_5, COLOR_MAGENTA, COLOR_BLACK);
-        init_pair(COLOR_PLAYER_6, COLOR_CYAN, COLOR_BLACK);
-        init_pair(COLOR_PLAYER_7, COLOR_WHITE, COLOR_BLACK);
-        init_pair(COLOR_PLAYER_8, COLOR_RED, COLOR_BLUE);
-        init_pair(COLOR_PLAYER_9, COLOR_YELLOW, COLOR_BLUE);
+        init_pair(COLOR_PLAYER_0, COLOR_RED, COLOR_BLACK);
+        init_pair(COLOR_PLAYER_1, COLOR_BLUE, COLOR_BLACK);
+        init_pair(COLOR_PLAYER_2, COLOR_GREEN, COLOR_BLACK);
+        init_pair(COLOR_PLAYER_3, COLOR_YELLOW, COLOR_BLACK);
+        init_pair(COLOR_PLAYER_4, COLOR_MAGENTA, COLOR_BLACK);
+        init_pair(COLOR_PLAYER_5, COLOR_CYAN, COLOR_BLACK);
+        init_pair(COLOR_PLAYER_6, COLOR_WHITE, COLOR_BLACK);
+        init_pair(COLOR_PLAYER_7, COLOR_RED, COLOR_BLUE);
+        init_pair(COLOR_PLAYER_8, COLOR_YELLOW, COLOR_BLUE);
         
         // Otros elementos
         init_pair(COLOR_CELL_VALUE, COLOR_WHITE, COLOR_BLACK);
@@ -89,6 +115,7 @@ void init_ncurses() {
     // Create windows
     int max_y, max_x;
     getmaxyx(stdscr, max_y, max_x);
+    (void)max_x; // max_x intentionally unused here; silence compiler warning
     
     // Verificar tamaño mínimo
     if(max_y < 20 || max_x < 60) {
@@ -101,7 +128,6 @@ void init_ncurses() {
     int board_height = max_y - 10;
     int board_width = (max_x * 2) / 3;
     int status_width = max_x - board_width - 3;
-
 
     board_win = newwin(board_height, board_width, 2, 1);
     status_win = newwin(board_height, status_width, 2, board_width + 2);
@@ -137,6 +163,7 @@ void draw_window_titles() {
     
     int max_y, max_x;
     getmaxyx(stdscr, max_y, max_x);
+    (void)max_x; // Evitar warning de unused variable
     mvprintw(max_y - 8, 2, "Game Information");
 }
 
@@ -212,6 +239,7 @@ void draw_player_status() {
     
     int win_height, win_width;
     getmaxyx(status_win, win_height, win_width);
+    (void)win_width; // Para avoider warning de unused variable
     
     mvwprintw(status_win, 1, 2, "Players (%u):", game_state->player_count);
     
@@ -219,9 +247,9 @@ void draw_player_status() {
     for (unsigned int i = 0; i < game_state->player_count && line < win_height - 2; i++) {
         
         // Player ID + Nombre
-        wattron(status_win, COLOR_PAIR(i) | A_BOLD);
+        wattron(status_win, COLOR_PAIR(COLOR_PLAYER_0 + i) | A_BOLD);
         mvwprintw(status_win, line, 2, "P%u: %s", i, game_state->players[i].name);
-        wattroff(status_win, COLOR_PAIR(i) | A_BOLD);
+        wattroff(status_win, COLOR_PAIR(COLOR_PLAYER_0 + i) | A_BOLD);
         line++;
         
         // Player status
@@ -251,7 +279,7 @@ void draw_game_info() {
     box(info_win, 0, 0);
     
     // Game status
-    if (game_state->game_finished) {
+    if (game_state->is_game_over) {
         wattron(info_win, COLOR_PAIR(COLOR_FINISHED) | A_BOLD | A_BLINK);
         mvwprintw(info_win, 1, 2, "GAME FINISHED!");
         wattroff(info_win, COLOR_PAIR(COLOR_FINISHED) | A_BOLD | A_BLINK);
@@ -267,10 +295,10 @@ void draw_game_info() {
         }
         
         if (winner >= 0) {
-            wattron(info_win, COLOR_PAIR(winner) | A_BOLD);
+            wattron(info_win, COLOR_PAIR(COLOR_PLAYER_0 + winner) | A_BOLD);
             mvwprintw(info_win, 2, 2, "Ganador: Player %d (%s) - %u puntos!",
                      winner, game_state->players[winner].name, max_score);
-            wattroff(info_win, COLOR_PAIR(color_pair) | A_BOLD);
+            wattroff(info_win, COLOR_PAIR(COLOR_PLAYER_0 + winner) | A_BOLD);
         }
     } else {
         wattron(info_win, COLOR_PAIR(COLOR_HEADER));
@@ -294,9 +322,13 @@ void draw_game_info() {
 void draw_complete_view(){
     clear();
     draw_window_titles();
+
+    read_lock();
     draw_game_board();
     draw_player_status();
     draw_game_info();
+    read_unlock();
+
     refresh();
 }
 
@@ -309,7 +341,10 @@ int main(int argc, char* argv[]){
     int width = atoi(argv[1]);
     int height = atoi(argv[2]);
     
-    if(init_ncurses() != 0) {
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    
+    if (init_ncurses() != 0) {
         return 1;
     }
 
@@ -322,11 +357,11 @@ int main(int argc, char* argv[]){
     }
 
     // Mensaje inicial
-    mvprintw(LINES/2, (COLS - 40)/, "Vista conectada - Esperando actualizaciones del juego...");
+    mvprintw(LINES/2, (COLS - 40)/3, "Vista conectada - Esperando actualizaciones del juego...");
     refresh();
     
     // Bucle principal de la vista
-    while(true){
+    while(running) {
         struct timespec timeout;
         clock_gettime(CLOCK_REALTIME, &timeout);
         timeout.tv_sec += 2; // 2 segundos timeout
@@ -334,20 +369,23 @@ int main(int argc, char* argv[]){
         // Esperar notificación del máster con timeout
         int sem_result = sem_timedwait(&game_sync->view_notify, &timeout);
         if (sem_result != 0) {
-            // Timeout o error, verificar si el juego terminó
-            if (game_state->game_finished) {
+            read_lock();
+            bool game_over = game_state->is_game_over;
+            read_unlock();
+            
+            if (game_over) {
                 break;
             }
             continue; // Reintentar
         }
         
-        draw_game_board();
+        draw_complete_view();
         
         // Notificar al máster que terminamos de imprimir
         sem_post(&game_sync->view_done);
         
         // Salir si el juego terminó
-        if (game_state->game_finished) {
+        if (game_state->is_game_over) {
             mvprintw(LINES - 1, 0, "Presiona cualquier tecla para salir...");
             refresh();
             timeout(2000); // 2 second timeout

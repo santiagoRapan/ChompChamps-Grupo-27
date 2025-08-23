@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "struct.h"
+#include "structs.h"
 #include "game_functions.h"
 #include <semaphore.h>
 #include <unistd.h>
@@ -17,7 +17,7 @@ void find_my_id() {
     for (int i = 0; i < game_state->player_count; i++) {
         if (game_state->players[i].pid == my_pid) {
             id = i;
-            return
+            return;
         }
     }
     return;
@@ -27,8 +27,8 @@ void reader_enter() {
     sem_wait(&game_sync->writer_mutex);
     sem_wait(&game_sync->reader_count_mutex);
     
-    game_sync->reader_count++;
-    if (game_sync->reader_count == 1) {
+    game_sync->readers_count++;
+    if (game_sync->readers_count == 1) {
         sem_wait(&game_sync->state_mutex);
     }
     
@@ -39,8 +39,8 @@ void reader_enter() {
 void reader_exit() {
     sem_wait(&game_sync->reader_count_mutex);
     
-    game_sync->reader_count--;
-    if (game_sync->reader_count == 0) {
+    game_sync->readers_count--;
+    if (game_sync->readers_count == 0) {
         sem_post(&game_sync->state_mutex);
     }
     
@@ -100,25 +100,29 @@ int main(int argc, char * argv[]){
         return -1;
     }
     while(!game_state->is_game_over){
-        sem_wait(&game_sync->playerTurn[id]);
+        sem_wait(&game_sync->player_turn[id]);
         int move = calculate_move();
+
+        if (move == -1) {
+            break; // No hay movimientos válidos, salir del bucle
+        } 
         write(STDOUT_FILENO, &move, sizeof(move));
     }
 
     return 0;
 }
 
-int calculate_move(){
-    int my_x = game_state->players[my_player_id].x;
-    int my_y = game_state->players[my_player_id].y;
+int calculate_move() {
+    int my_x = game_state->players[id].x;
+    int my_y = game_state->players[id].y;
     
-    int best_score = -2000;
-    unsigned char best_move = 0;
+    int best_score = -1;
+    unsigned char best_move = -1;
     bool found_valid = false;
     
     // Evaluar todas las direcciones posibles
     for (unsigned char dir = 0; dir < 8; dir++) {
-        if (is_valid_move(game_state, my_player_id, dir)) {
+        if (is_valid_move(game_state, id, dir)) {
             int new_x = my_x + MOVE_DELTAS[dir][0];
             int new_y = my_y + MOVE_DELTAS[dir][1];
             
@@ -132,10 +136,8 @@ int calculate_move(){
         }
     }
     
-    // Si no encontramos movimiento válido, devolver movimiento aleatorio
-    if (!found_valid) {
-        return rand() % 8;
-    }
+    // No hay movimientos válidos
+    //! RESOLVER QUE PASA ACA
     
     return best_move;
 }

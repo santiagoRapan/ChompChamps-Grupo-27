@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "structs.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,6 +8,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/wait.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <stdbool.h>
+#include <limits.h>
+#include <semaphore.h>
+
 #define DEFAULT_WIDTH 10
 #define DEFAULT_HEIGHT 10
 #define DEFAULT_DELAY 200 //MILISEGUNDOS
@@ -36,28 +44,6 @@ static pid_t view_pid = -1;
 static int state_shm_fd = -1;
 static int sync_shm_fd = -1;
 
-// Helpers para el parseo de parametros 
-static long parse_long_or_default(const char *s, long fallback) {
-    if (s == NULL) return fallback;
-    char *endptr = NULL;
-    errno = 0;
-    long val = strtol(s, &endptr, 10);
-    if (errno != 0 || endptr == s || *endptr != '\0') {
-        return fallback;
-    }
-    return val;
-}
-
-static unsigned int parse_uint_or_default(const char *s, unsigned int fallback) {
-    if (s == NULL) return fallback;
-    char *endptr = NULL;
-    errno = 0;
-    unsigned long val = strtoul(s, &endptr, 10);
-    if (errno != 0 || endptr == s || *endptr != '\0' || val > UINT_MAX) {
-        return fallback;
-    }
-    return (unsigned int)val;
-}
 
 void parser(master_config_t* config, int argc, char *argv[]){
     // Valores por defecto
@@ -91,45 +77,7 @@ void parser(master_config_t* config, int argc, char *argv[]){
             }
         }
     }
-
-    //! Misma funcionalidad que lo de arriba pero con parseo robusto (Falta testear)
-    /* 
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-w") == 0 && i + 1 < argc) {
-            long w = parse_long_or_default(argv[i+1], config->width);
-            if (w < 10) w = 10;
-            config->width = (int)w;
-            i++;
-        } else if (strcmp(argv[i], "-h") == 0 && i + 1 < argc) {
-            long h = parse_long_or_default(argv[i+1], config->height);
-            if (h < 10) h = 10;
-            config->height = (int)h;
-            i++;
-        } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
-            long d = parse_long_or_default(argv[i+1], config->delay);
-            if (d < 0) d = config->delay;
-            config->delay = (int)d;
-            i++;
-        } else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
-            long t = parse_long_or_default(argv[i+1], config->timeout);
-            if (t < 0) t = config->timeout;
-            config->timeout = (int)t;
-            i++;
-        } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
-            config->seed = parse_uint_or_default(argv[i+1], config->seed);
-            i++;
-        } else if (strcmp(argv[i], "-v") == 0 && i + 1 < argc) {
-            config->view_path = argv[++i];
-        } else if (strcmp(argv[i], "-p") == 0) {
-
-            while (i + 1 < argc && argv[i + 1][0] != '-' && config->player_count < MAX_PLAYERS) {
-                config->player_paths[config->player_count++] = argv[++i];
-            }
-        } else {
-            // Unknown option or missing argument: skip
-        }
-    }
-    */
+    
     if (config->player_count == 0) {
         fprintf(stderr, "Error: Se requiere al menos un jugador (-p)\n");
         exit(1);
@@ -165,6 +113,9 @@ int setup_shared_memory(master_config_t* config) {
         game_state->players[i].pid = 0;
     }
     initialize_board(game_state, config->seed);
+    place_players_on_board(game_state);
+
+    initialize_semaphores(game_sync, config->player_count);
 
    return 0;
 }
@@ -176,11 +127,11 @@ void clear_resources(){
     }
     if(state_shm_fd != -1){ 
         close(state_shm_fd);
-        cleanup_shared_memory(GAME_STATE_SHM);
+        clear_shm(GAME_STATE_SHM);
     }
     if(sync_shm_fd != -1){
         close(sync_shm_fd);
-        cleanup_shared_memory(GAME_SYNC_SHM);
+        clear_shm(GAME_SYNC_SHM);
     }
     for(int i = 0; i < game_state->player_count; i++){
         if(players[i].pipe_fd != -1){
@@ -249,72 +200,191 @@ pid_t create_view_process(const char* view_path, master_config_t *config){
         perror("Error haciendo el execl");//no deberia llegar
         exit(1);
     }
-
+    return pid;
 }
 
 void signal_handler(int sig __attribute__((unused))) {
-    cleanup_resources();
+    clear_resources();
     exit(1);
 }
 
-bool is_valid_move(int player_id, unsigned char move){
-    return game_state->board[]
+void notify_view_and_wait() {
+    if (view_pid > 0) {
+        sem_post(&game_sync->view_notify);
+        sem_wait(&game_sync->view_done);
+    }
 }
 
-
 void game_loop(master_config_t *config) {
+    fd_set read_fds;
+    struct timeval timeout;
+    int max_fd = 0;
+    for(int i = 0; i < config->player_count; i++) {
+        if (players[i].pipe_fd > max_fd) {
+            max_fd = players[i].pipe_fd;
+        }
+    }
+    notify_view_and_wait();
+    struct timespec delay_ts = {
+        .tv_sec = config->delay / 1000,
+        .tv_nsec = (config->delay % 1000) * 1000000
+    };
+    nanosleep(&delay_ts, NULL);
+
+    int current_player = 0;
     time_t last_move = time(NULL);
     while (!game_state->is_game_over) {
-        if(time(NULL)-last_move>config->turn_timeout) {
-            //printf("Timeout alcanzado, finalizando juego\n");
+        if(time(NULL)-last_move>config->timeout) {
             break;
         }
 
-        bool processed_move=false;
+        FD_ZERO(&read_fds);
+        bool any_active = false;
+        for(int i = 0; i < config->player_count; i++) {
+            if (players[i].active && !game_state->players[i].blocked) {
+                FD_SET(players[i].pipe_fd, &read_fds);
+                any_active = true;
+            }
+        }
+        if(!any_active){
+            break;
+        }
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int ready = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
+        if(ready == -1){
+            if (errno == EINTR) {
+                continue;
+                perror("Error en select");
+                break;
+            }
+        }
+        if (ready == 0) {
+            continue; 
+        }
+
+        bool processed_move = false;
         for(int tries=0; tries<config->player_count && !processed_move; tries++) {
             int id = (current_player + tries) % config->player_count;
                         
-            if (!players[player_id].active || game_state->players[player_id].blocked) {
+            if (!players[id].active || game_state->players[id].blocked) {
                 continue;
             }
-
-            unsigned char move;
-            ssize_t bytes_read = read(players[player_id].pipe_fd, &move, 1);
             
-            if (bytes_read == 0) {
-                game_state->players[player_id].blocked = true;
-                players[player_id].active = false;
-                printf("Jugador %d bloqueado (EOF)\n", player_id);
+            if(FD_ISSET(players[id].pipe_fd, &read_fds) == 0) {
+                unsigned char move;
+                ssize_t bytes_read = read(players[id].pipe_fd, &move, 1);
+                if (bytes_read == 0) { // NO SE SI ESTO CONTEMPLA EL CASO DE QUE TENGA MOVIMIENTOS PERO TARDE
+                    game_state->players[id].blocked = true;
+                    players[id].active = false;
 
-            } else if (bytes_read == 1) {
-                sem_wait(&game_sync->writer_mutex);
-                sem_wait(&game_sync->state_mutex);
-                
-                if (is_valid_move(player_id, move)) {
-                    apply_move(player_id, move);
-                    last_valid_move = time(NULL);
-                    printf("Jugador %d: movimiento válido %d\n", player_id, move);
-                } else {
-                    game_state->players[player_id].invalid_moves++;
-                    printf("Jugador %d: movimiento inválido %d\n", player_id, move);
+                } else if (bytes_read == 1) {
+                    sem_wait(&game_sync->writer_mutex);
+                    sem_wait(&game_sync->state_mutex);
+                    
+                    if (is_valid_move(game_state ,id ,move)) {
+                        apply_move(game_state, id, move);
+                        last_move = time(NULL);
+                    } else {
+                        game_state->players[id].invalid_moves++;
+                    }
+                    
+                    sem_post(&game_sync->state_mutex);
+                    sem_post(&game_sync->writer_mutex);
+                    
+                    sem_post(&game_sync->player_turn[id]);
+                    
+                    notify_view_and_wait();
+                    nanosleep(&delay_ts, NULL);                
+                    processed_move = true;
                 }
-                
-                sem_post(&game_sync->state_mutex);
-                sem_post(&game_sync->writer_mutex);
-                
-                sem_post(&game_sync->player_turn[player_id]);
-                
-                notify_view_and_wait();
-                nanosleep(&delay_ts, NULL);
-                
-                processed_move = true;
             }
         }
     }
 
     sem_wait(&game_sync->state_mutex);
-    game_state->game_finished = true;
+    game_state->is_game_over = true;
     sem_post(&game_sync->state_mutex);
+}
+
+void terminate_all_processes(master_config_t* config){
+    printf("Terminando todos los procesos...\n");
+    
+    // Terminar jugadores
+    for (int i = 0; i < config->player_count; i++) {
+        if (players[i].pid > 0) {
+            kill(players[i].pid, SIGTERM);
+        }
+    }
+    
+    // Terminar vista
+    if (view_pid > 0) {
+        kill(view_pid, SIGTERM);
+    }
+    
+    // Dar tiempo para terminación graceful
+    sleep(1);
+    
+    // Forzar terminación si es necesario
+    for (int i = 0; i < config->player_count; i++) {
+        if (players[i].pid > 0) {
+            kill(players[i].pid, SIGKILL);
+        }
+    }
+    
+    if (view_pid > 0) {
+        kill(view_pid, SIGKILL);
+    }
+}
+
+void wait_for_processes(master_config_t* config){
+    int status;
+    
+    printf("Esperando terminación de procesos...\n");
+    
+    // Esperar jugadores con timeout
+    for(int i = 0; i < config->player_count; i++){
+        if (players[i].pid > 0) {
+            pid_t result = waitpid(players[i].pid, &status, WNOHANG);
+            if (result == 0) {
+                // Proceso aún corriendo, dar más tiempo
+                sleep(1);
+                result = waitpid(players[i].pid, &status, WNOHANG);
+                if(result == 0){
+                    printf("Forzando terminación del jugador %d\n", i);
+                    kill(players[i].pid, SIGKILL);
+                    waitpid(players[i].pid, &status, 0);
+                }
+            }
+            
+            if(WIFEXITED(status)){
+                printf("Jugador %d terminó con código %d, puntaje: %u\n", i, WEXITSTATUS(status), game_state->players[i].score);
+            }else if(WIFSIGNALED(status)){
+                printf("Jugador %d terminó por señal %d, puntaje: %u\n", i, WTERMSIG(status), game_state->players[i].score);
+            }
+        }
+    }
+    
+    // Esperar vista con timeout
+    if(view_pid > 0){
+        pid_t result = waitpid(view_pid, &status, WNOHANG);
+        if(result == 0){
+            sleep(1);
+            result = waitpid(view_pid, &status, WNOHANG);
+            if(result == 0){
+                printf("Forzando terminación de la vista\n");
+                kill(view_pid, SIGKILL);
+                waitpid(view_pid, &status, 0);
+            }
+        }
+        
+        if(WIFEXITED(status)){
+            printf("Vista terminó con código %d\n", WEXITSTATUS(status));
+        }else if (WIFSIGNALED(status)){
+            printf("Vista terminó por señal %d\n", WTERMSIG(status));
+        }
+    }
 }
 
 int main(int argc, char *argv[]){
@@ -325,29 +395,37 @@ int main(int argc, char *argv[]){
 
     parser(&config, argc, argv);
 
-    if(sup_shared_memory(&config) == -1) {
+    if(setup_shared_memory(&config) == -1) {
         fprintf(stderr, "Error al configurar la memoria compartida\n");
-        //clear_resources();
+        clear_resources();
         return 1;
     }
     for(int i=0; i<config.player_count; i++){
-        if(cate_player_process(config.player_paths[i], i, &config) == -1){
+        if(create_player_process(config.player_paths[i], i, &config) == -1){
             fprintf(stderr, "Error al crear proceso jugador %d\n", i);
-            //clear_resources();
+            clear_resources();
             return 1;
         }
     }
 
     if(config.view_path){
         view_pid = create_view_process(config.view_path, &config);
-        if(vw_pid == -1){
+        if(view_pid == -1){
             fprintf(stderr, "Error al crear proceso vista\n");
-            //clear_resources();
+            clear_resources();
             return 1;
         }
     }
 
-    
+    initialize_semaphores(game_sync, config.player_count);
+
+    game_loop(&config);
+
+    terminate_all_processes(&config);
+
+    wait_for_processes(&config);
+
+    clear_resources();
 
 
     return 0;

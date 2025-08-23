@@ -1,7 +1,26 @@
+#define _POSIX_C_SOURCE 200809L
 #include "game_functions.h"
 #include "structs.h"
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <semaphore.h>
+
+
+const int MOVE_DELTAS[8][2] = {
+    {0, -1},  // UP
+    {1, -1},  // UP_RIGHT
+    {1, 0},   // RIGHT
+    {1, 1},   // DOWN_RIGHT
+    {0, 1},   // DOWN
+    {-1, 1},  // DOWN_LEFT
+    {-1, 0},  // LEFT
+    {-1, -1}  // UP_LEFT
+};
 
 int create_shared_memory(const char* name, size_t size) {
     int shm_fd = shm_open(name, O_CREAT | O_RDWR, 0644);
@@ -60,6 +79,12 @@ void cleanup_shared_memory(game_state_t* gamestate, game_sync_t* gamesync) {
         detach_shared_memory(gamesync, sizeof(game_sync_t));
     }
 
+}
+
+void clear_shm(const char* name){
+    if (shm_unlink(name) == -1) {
+        perror("shm_unlink");
+    }
 }
 
 void cleanup_semaphores(game_sync_t* sync, int player_count) {
@@ -167,7 +192,40 @@ game_sync_t* setup_game_sync(){
 }
 
 void apply_move(game_state_t* game_state,int  player_id, unsigned char move) {//TERMINAR
-    
+    int current_x = game_state->players[player_id].x;
+    int current_y = game_state->players[player_id].y;
+    int new_x = current_x + MOVE_DELTAS[move][0];
+    int new_y = current_y + MOVE_DELTAS[move][1];
+
+    int reward = get_cell_value(game_state, new_x, new_y);
+
+    game_state->players[player_id].x = new_x;
+    game_state->players[player_id].y = new_y;
+
+    game_state->players[player_id].score += reward;
+
+    set_cell_owner(game_state, new_x, new_y, player_id);
     game_state->players[player_id].valid_moves++;
-   // game_state->board[game_state->players[player_id].x][game_state->players[player_id].y] = -(player_id);
 }
+
+int is_valid_move(game_state_t* state, int player_id, unsigned char move) {
+    if (move > 7) {
+        return false;
+    }
+    
+    if (player_id < 0 || (unsigned int)player_id >= state->player_count) {
+        return false;
+    }
+    
+    if (state->players[player_id].blocked) {
+        return false;
+    }
+    
+    int current_x = state->players[player_id].x;
+    int current_y = state->players[player_id].y;
+    
+    int new_x = current_x + MOVE_DELTAS[move][0];
+    int new_y = current_y + MOVE_DELTAS[move][1];
+    
+    return is_cell_free(state, new_x, new_y);
+ }

@@ -50,4 +50,6 @@ typedef enum {
     MOVE_UP_LEFT = 7    // ↖
 } move_direction_t;
 
+extern const int MOVE_DELTAS[8][2];
+
 #endif // STRUCTS_H
