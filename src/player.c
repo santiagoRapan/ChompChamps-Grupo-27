@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "structs.h"
 #include "game_functions.h"
+#include "ipc.h"
 #include <semaphore.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -79,6 +80,36 @@ int evaluate_cell(int x, int y) {
     return score;
 }
 
+int calculate_move() {
+    int my_x = game_state->players[id].x;
+    int my_y = game_state->players[id].y;
+    
+    int best_score = -1;
+    unsigned char best_move = -1;
+    bool found_valid = false;
+    
+    // Evaluar todas las direcciones posibles
+    for (unsigned char dir = 0; dir < 8; dir++) {
+        if (is_valid_move(game_state, id, dir)) {
+            int new_x = my_x + MOVE_DELTAS[dir][0];
+            int new_y = my_y + MOVE_DELTAS[dir][1];
+            
+            int score = evaluate_cell(new_x, new_y);
+            
+            if (!found_valid || score > best_score) {
+                best_score = score;
+                best_move = dir;
+                found_valid = true;
+            }
+        }
+    }
+    
+    // No hay movimientos válidos
+    //! RESOLVER QUE PASA ACA
+    
+    return best_move;
+}
+
 int main(int argc, char * argv[]){
     if(argc != 3){
         fprintf(stderr, "Uso: %s <width> <height>\n", argv[0]);
@@ -110,34 +141,4 @@ int main(int argc, char * argv[]){
     }
 
     return 0;
-}
-
-int calculate_move() {
-    int my_x = game_state->players[id].x;
-    int my_y = game_state->players[id].y;
-    
-    int best_score = -1;
-    unsigned char best_move = -1;
-    bool found_valid = false;
-    
-    // Evaluar todas las direcciones posibles
-    for (unsigned char dir = 0; dir < 8; dir++) {
-        if (is_valid_move(game_state, id, dir)) {
-            int new_x = my_x + MOVE_DELTAS[dir][0];
-            int new_y = my_y + MOVE_DELTAS[dir][1];
-            
-            int score = evaluate_cell(new_x, new_y);
-            
-            if (!found_valid || score > best_score) {
-                best_score = score;
-                best_move = dir;
-                found_valid = true;
-            }
-        }
-    }
-    
-    // No hay movimientos válidos
-    //! RESOLVER QUE PASA ACA
-    
-    return best_move;
 }

@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <time.h>
 #include "game_functions.h"
+#include "ipc.h"
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
@@ -43,15 +44,6 @@ static player_process_t players[MAX_PLAYERS];
 static pid_t view_pid = -1;
 static int state_shm_fd = -1;
 static int sync_shm_fd = -1;
-
-// TENGO Q MOVER A GAME FUNCTIONS
-int is_executable_file(const char *path) {
-    if (!path) return 0;
-    if (access(path, F_OK | X_OK) != 0) return 0; // exists & executable
-    struct stat st;
-    if (stat(path, &st) != 0) return 0;
-    return S_ISREG(st.st_mode); // regular file
-}
 
 void parser(master_config_t* config, int argc, char *argv[]){
     // Valores por defecto
@@ -287,7 +279,7 @@ void game_loop(master_config_t *config) {
                 continue;
             }
             
-            if(FD_ISSET(players[id].pipe_fd, &read_fds) == 0) {
+            if(FD_ISSET(players[id].pipe_fd, &read_fds)) { // Leo si esta listo (!= 0)
                 unsigned char move;
                 ssize_t bytes_read = read(players[id].pipe_fd, &move, 1);
                 if (bytes_read == 0) { // NO SE SI ESTO CONTEMPLA EL CASO DE QUE TENGA MOVIMIENTOS PERO TARDE
@@ -300,6 +292,7 @@ void game_loop(master_config_t *config) {
                     
                     if (is_valid_move(game_state ,id ,move)) {
                         apply_move(game_state, id, move);
+                        game_state->players[id].valid_moves++;
                         last_move = time(NULL);
                     } else {
                         game_state->players[id].invalid_moves++;
@@ -313,6 +306,7 @@ void game_loop(master_config_t *config) {
                     notify_view_and_wait();
                     nanosleep(&delay_ts, NULL);                
                     processed_move = true;
+                    current_player = (id + 1) % config->player_count;
                 }
             }
         }
@@ -432,7 +426,6 @@ int main(int argc, char *argv[]){
         }
     }
 
-    initialize_semaphores(game_sync, config.player_count);
 
     game_loop(&config);
 

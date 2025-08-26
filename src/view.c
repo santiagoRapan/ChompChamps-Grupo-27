@@ -8,6 +8,7 @@
 #include <signal.h>
 #include "structs.h"
 #include "game_functions.h"
+#include "ipc.h"
 
 #define COLOR_PLAYER_0 1
 #define COLOR_PLAYER_1 2
