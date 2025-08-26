@@ -44,6 +44,14 @@ static pid_t view_pid = -1;
 static int state_shm_fd = -1;
 static int sync_shm_fd = -1;
 
+// TENGO Q MOVER A GAME FUNCTIONS
+int is_executable_file(const char *path) {
+    if (!path) return 0;
+    if (access(path, F_OK | X_OK) != 0) return 0; // exists & executable
+    struct stat st;
+    if (stat(path, &st) != 0) return 0;
+    return S_ISREG(st.st_mode); // regular file
+}
 
 void parser(master_config_t* config, int argc, char *argv[]){
     // Valores por defecto
@@ -121,10 +129,12 @@ int setup_shared_memory(master_config_t* config) {
 }
 
 void clear_resources(){
-    cleanup_shared_memory(game_state, game_sync);
-    if(game_sync){
-        cleanup_semaphores(game_sync, game_state->player_count);
+    int aux = game_state->player_count;        // cache
+    cleanup_shared_memory(game_state, game_sync); // munmap here
+    if (game_sync) {
+        cleanup_semaphores(game_sync, aux);
     }
+    
     if(state_shm_fd != -1){ 
         close(state_shm_fd);
         clear_shm(GAME_STATE_SHM);
@@ -169,6 +179,11 @@ pid_t create_player_process(const char* player_path, int player_id, master_confi
             exit(1);
         }
 
+        if (!is_executable_file(player_path)) {
+            perror("El player path no es valido");
+            exit(1);
+        }
+        
         execl(player_path, player_path, width_str, height_str, NULL);
         perror("Error haciendo el execl");//no deberia llegar
         exit(1);
