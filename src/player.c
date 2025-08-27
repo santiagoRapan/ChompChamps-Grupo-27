@@ -13,9 +13,9 @@ static game_sync_t* game_sync = NULL;
 
 static int id = -1;
 
-void find_my_id() {
+static void find_my_id() {
     pid_t my_pid = getpid();
-    for (int i = 0; i < game_state->player_count; i++) {
+    for (unsigned int i = 0; i < game_state->player_count; i++) {
         if (game_state->players[i].pid == my_pid) {
             id = i;
             return;
@@ -75,39 +75,23 @@ int evaluate_cell(int x, int y) {
             free_neighbors++;
         }
     }
-    score += free_neighbors * 5; // Bonificar movilidad
-    
-    return score;
+    return score + free_neighbors * 5;
 }
 
-int calculate_move() {
-    int my_x = game_state->players[id].x;
-    int my_y = game_state->players[id].y;
-    
-    int best_score = -1;
-    unsigned char best_move = -1;
-    bool found_valid = false;
-    
-    // Evaluar todas las direcciones posibles
-    for (unsigned char dir = 0; dir < 8; dir++) {
-        if (is_valid_move(game_state, id, dir)) {
-            int new_x = my_x + MOVE_DELTAS[dir][0];
-            int new_y = my_y + MOVE_DELTAS[dir][1];
-            
-            int score = evaluate_cell(new_x, new_y);
-            
-            if (!found_valid || score > best_score) {
-                best_score = score;
-                best_move = dir;
-                found_valid = true;
-            }
+static signed char calculate_move() {
+    int x = game_state->players[id].x;
+    int y = game_state->players[id].y;
+    int best = -1, best_score = -1;
+
+    for (unsigned char d = 0; d < 8; d++) {
+        if (is_valid_move(game_state, id, d)) {
+            int nx = x + MOVE_DELTAS[(int)d][0];
+            int ny = y + MOVE_DELTAS[(int)d][1];
+            int s = evaluate_cell(nx, ny);
+            if (s > best_score) { best_score = s; best = d; }
         }
     }
-    
-    // No hay movimientos válidos
-    //! RESOLVER QUE PASA ACA
-    
-    return best_move;
+    return (signed char)best;  // -1 if none
 }
 
 int main(int argc, char * argv[]){
@@ -120,7 +104,7 @@ int main(int argc, char * argv[]){
 
     game_state = setup_game_state(width,height);
     game_sync = setup_game_sync();
-    if(game_state == NULL || game_sync == NULL){
+    if(!game_state || !game_sync){
         fprintf(stderr, "Error al inicializar el estado del juego o la sincronización\n");
         return 1;
     }
@@ -130,16 +114,25 @@ int main(int argc, char * argv[]){
                 //REVISAR
         return -1;
     }
-    
     while(!game_state->is_game_over){
         sem_wait(&game_sync->player_turn[id]);
-        int move = calculate_move();
+
+        reader_enter();
+        bool over = game_state->is_game_over;
+        reader_exit();
+
+        if (over) {
+            break;
+        }
+
+        reader_enter();
+        signed char move = calculate_move();
+        reader_exit();
 
         if (move == -1) {
             break; // No hay movimientos válidos, salir del bucle
         } 
-        write(STDOUT_FILENO, &move, sizeof(move));
+        write(STDOUT_FILENO, &move, 1);
     }
-
     return 0;
 }

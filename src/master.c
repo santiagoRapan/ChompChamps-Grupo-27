@@ -45,6 +45,45 @@ static pid_t view_pid = -1;
 static int state_shm_fd = -1;
 static int sync_shm_fd = -1;
 
+static inline bool all_players_blocked_or_inactive(const master_config_t* cfg) {
+    for (int i = 0; i < cfg->player_count; i++) {
+        if (players[i].active && !game_state->players[i].blocked) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void notify_view_and_wait_ms(long ms) {
+    if (view_pid <= 0) return;
+    sem_post(&game_sync->view_notify);
+
+    // Timed wait so we never deadlock if the view dies
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec  += ms / 1000;
+    ts.tv_nsec += (ms % 1000) * 1000000L;
+    if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
+
+    while (sem_timedwait(&game_sync->view_done, &ts) == -1) {
+        if (errno == EINTR) continue;  // retry if interrupted
+        break;                         // timed out or other error — continue anyway
+    }
+}
+
+void clear_resources(){
+    int count = game_state ? game_state->player_count : 0;   // cache before unmap
+    cleanup_shared_memory(game_state, game_sync);
+    if (game_sync) cleanup_semaphores(game_sync, count);
+
+    if (state_shm_fd != -1) { close(state_shm_fd); clear_shm(GAME_STATE_SHM); }
+    if (sync_shm_fd  != -1) { close(sync_shm_fd);  clear_shm(GAME_SYNC_SHM);  }
+
+    for (int i = 0; i < count; i++) {
+        if (players[i].pipe_fd != -1) { close(players[i].pipe_fd); players[i].pipe_fd = -1; }
+    }
+}
+
 void parser(master_config_t* config, int argc, char *argv[]){
     // Valores por defecto
     config->width = DEFAULT_WIDTH;
@@ -120,28 +159,6 @@ int setup_shared_memory(master_config_t* config) {
    return 0;
 }
 
-void clear_resources(){
-    int aux = game_state->player_count;        // cache
-    cleanup_shared_memory(game_state, game_sync); // munmap here
-    if (game_sync) {
-        cleanup_semaphores(game_sync, aux);
-    }
-    
-    if(state_shm_fd != -1){ 
-        close(state_shm_fd);
-        clear_shm(GAME_STATE_SHM);
-    }
-    if(sync_shm_fd != -1){
-        close(sync_shm_fd);
-        clear_shm(GAME_SYNC_SHM);
-    }
-    for(int i = 0; i < game_state->player_count; i++){
-        if(players[i].pipe_fd != -1){
-            close(players[i].pipe_fd);
-        }
-    }
-}
-
 pid_t create_player_process(const char* player_path, int player_id, master_config_t* config){
     int pipefd[2];
     if(pipe(pipefd) == -1){
@@ -215,14 +232,9 @@ void signal_handler(int sig __attribute__((unused))) {
     exit(1);
 }
 
-void notify_view_and_wait() {
-    if (view_pid > 0) {
-        sem_post(&game_sync->view_notify);
-        sem_wait(&game_sync->view_done);
-    }
-}
 
-void game_loop(master_config_t *config) {
+
+static void game_loop(master_config_t *config) {
     fd_set read_fds;
     struct timeval timeout;
     int max_fd = 0;
@@ -231,31 +243,35 @@ void game_loop(master_config_t *config) {
             max_fd = players[i].pipe_fd;
         }
     }
-    notify_view_and_wait();
+    
+    notify_view_and_wait_ms(config->delay);
+
     struct timespec delay_ts = {
-        .tv_sec = config->delay / 1000,
-        .tv_nsec = (config->delay % 1000) * 1000000
+        .tv_sec  = config->delay / 1000,
+        .tv_nsec = (config->delay % 1000) * 1000000L
     };
-    nanosleep(&delay_ts, NULL);
 
     int current_player = 0;
     time_t last_move = time(NULL);
+
+
     while (!game_state->is_game_over) {
-        if(time(NULL)-last_move>config->timeout) {
+        if(time(NULL) - last_move > config->timeout) {
+            break;
+        }
+
+        if (all_players_blocked_or_inactive(config)) {
             break;
         }
 
         FD_ZERO(&read_fds);
-        bool any_active = false;
+        
         for(int i = 0; i < config->player_count; i++) {
             if (players[i].active && !game_state->players[i].blocked) {
                 FD_SET(players[i].pipe_fd, &read_fds);
-                any_active = true;
             }
         }
-        if(!any_active){
-            break;
-        }
+        
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
@@ -278,43 +294,59 @@ void game_loop(master_config_t *config) {
             if (!players[id].active || game_state->players[id].blocked) {
                 continue;
             }
-            
-            if(FD_ISSET(players[id].pipe_fd, &read_fds)) { // Leo si esta listo (!= 0)
-                unsigned char move;
-                ssize_t bytes_read = read(players[id].pipe_fd, &move, 1);
-                if (bytes_read == 0) { // NO SE SI ESTO CONTEMPLA EL CASO DE QUE TENGA MOVIMIENTOS PERO TARDE
-                    game_state->players[id].blocked = true;
-                    players[id].active = false;
-
-                } else if (bytes_read == 1) {
-                    sem_wait(&game_sync->writer_mutex);
-                    sem_wait(&game_sync->state_mutex);
-                    
-                    if (is_valid_move(game_state ,id ,move)) {
-                        apply_move(game_state, id, move);
-                        game_state->players[id].valid_moves++;
-                        last_move = time(NULL);
-                    } else {
-                        game_state->players[id].invalid_moves++;
-                    }
-                    
-                    sem_post(&game_sync->state_mutex);
-                    sem_post(&game_sync->writer_mutex);
-                    
-                    sem_post(&game_sync->player_turn[id]);
-                    
-                    notify_view_and_wait();
-                    nanosleep(&delay_ts, NULL);                
-                    processed_move = true;
-                    current_player = (id + 1) % config->player_count;
-                }
+            if (!FD_ISSET(players[id].pipe_fd, &read_fds)) {
+                continue;
             }
+
+            unsigned char move;
+            ssize_t n = read(players[id].pipe_fd, &move, 1);
+
+            if (n == 0) { // EOF: player finished — mark blocked/inactive and close FD
+                game_state->players[id].blocked = true;
+                players[id].active = false;
+                close(players[id].pipe_fd);
+                players[id].pipe_fd = -1;
+                continue;
+            }
+            if (n < 0) {
+                if (errno == EINTR) continue;  // spurious
+                // treat as player gone
+                game_state->players[id].blocked = true;
+                players[id].active = false;
+                close(players[id].pipe_fd);
+                players[id].pipe_fd = -1;
+                continue;
+            }
+            // Got 1 byte
+            sem_wait(&game_sync->writer_mutex);
+            sem_wait(&game_sync->state_mutex);
+
+            if (is_valid_move(game_state, id, move)) {
+                apply_move(game_state, id, move);
+                // DO NOT double-increment valid_moves here; apply_move already does it.
+                last_move = time(NULL);
+            } else {
+                game_state->players[id].invalid_moves++;
+            }
+
+            sem_post(&game_sync->state_mutex);
+            sem_post(&game_sync->writer_mutex);
+
+            sem_post(&game_sync->player_turn[id]);   // let player decide next
+
+            notify_view_and_wait_ms(config->delay);
+            nanosleep(&delay_ts, NULL);
+
+            processed_move = true;
+            current_player = (id + 1) % config->player_count;
         }
     }
 
     sem_wait(&game_sync->state_mutex);
     game_state->is_game_over = true;
     sem_post(&game_sync->state_mutex);
+
+    notify_view_and_wait_ms(300);
 }
 
 void terminate_all_processes(master_config_t* config){
