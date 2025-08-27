@@ -66,7 +66,6 @@ void cleanup_shared_memory(game_state_t* gamestate, game_sync_t* gamesync) {
     if(gamesync){
         detach_shared_memory(gamesync, sizeof(game_sync_t));
     }
-
 }
 
 void clear_shm(const char* name){

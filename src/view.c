@@ -332,7 +332,7 @@ void draw_complete_view(void){
     draw_game_info();
     read_unlock();
 
-    //Usa wnoutrefresh y doupdate para minimizar parpadeo
+    // Usa wnoutrefresh y doupdate para minimizar parpadeo
     wnoutrefresh(board_win);
     wnoutrefresh(status_win);
     wnoutrefresh(info_win);
@@ -383,7 +383,9 @@ int main(int argc, char* argv[]){
             read_unlock();
             
             if (game_over) {
+                //!!!!
                 sem_post(&game_sync->view_done);
+                //!!!!
                 break;
             }
             continue; // Reintentar
