@@ -9,10 +9,7 @@ LDFLAGS  :=
 # Try to detect ncurses (wide -> regular). Override via: make NCURSES_LIBS="-lncurses"
 NCURSES_LIBS ?= $(shell pkg-config --libs ncursesw 2>/dev/null || pkg-config --libs ncurses 2>/dev/null || echo -lncursesw)
 
-# Some systems split terminfo; if you see link errors, you can run:
-#   make clean && make NCURSES_LIBS="-lncursesw -ltinfo"
-# or set it permanently above.
-
+# -------- dirs --------
 SRC_DIR  := src
 OBJ_DIR  := build
 BIN_DIR  := bin
@@ -48,21 +45,55 @@ clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 # Open the course container (run from HOST)
-shell:
+container:
 	docker run -it --rm -v $$PWD:/workspace agodio/itba-so-multi-platform:3.0 bash
 
 # Install deps INSIDE the container
-deps:
+ncurses:
 	apt-get update && apt-get install -y libncurses-dev pkg-config
 
 # Example runs
-run: all
-	@echo "Running: master + view + 2 players (15x15, delay 300ms, timeout 20s, seed 123)"
-	./$(BIN_DIR)/master -w 15 -h 15 -d 300 -t 20 -s 123 -v ./$(BIN_DIR)/view -p ./$(BIN_DIR)/player ./$(BIN_DIR)/player
+run_def:
+	@echo "Running: master with default paramameters"
+	./$(BIN_DIR)/master -p ./$(BIN_DIR)/player ./$(BIN_DIR)/player
 
-run_headless: all
-	@echo "Running: master + 2 players (no view)"
-	./$(BIN_DIR)/master -w 15 -h 15 -d 300 -t 20 -s 123 -p ./$(BIN_DIR)/player ./$(BIN_DIR)/player
+run_view: all
+	@echo "Running: master with default paramameters and view"
+	./$(BIN_DIR)/master -v ./$(BIN_DIR)/view -p ./$(BIN_DIR)/player ./$(BIN_DIR)/player
+
+MAX_PLAYERS := 9
+
+# -------- runtime params --------
+w       ?=
+h       ?=
+d       ?=
+t       ?=
+s       ?=
+v       ?=
+p       ?=
+
+run:
+	@# ---- validation: players required (1..9) ----
+	@if [ -z "$(strip $(p))" ]; then \
+		echo "Error: You must pass players. Example: make run players=\"./bin/player ./bin/player\""; \
+		exit 1; \
+	fi
+	@players_count=$$(echo "$(p)" | wc -w); \
+	if [ $$players_count -lt 1 ] || [ $$players_count -gt 9 ]; then \
+		echo "Error: players must contain between 1 and 9 paths; got $$players_count"; \
+		exit 1; \
+	fi
+	@# ---- build the argv only for flags you set ----
+	@RUN_ARGS=""; \
+	if [ -n "$(strip $(w))" ]; then RUN_ARGS="$$RUN_ARGS -w $(w)"; fi; \
+	if [ -n "$(strip $(h))" ]; then RUN_ARGS="$$RUN_ARGS -h $(h)"; fi; \
+	if [ -n "$(strip $(d))" ]; then RUN_ARGS="$$RUN_ARGS -d $(d)"; fi; \
+	if [ -n "$(strip $(t))" ]; then RUN_ARGS="$$RUN_ARGS -t $(t)"; fi; \
+	if [ -n "$(strip $(s))" ]; then RUN_ARGS="$$RUN_ARGS -s $(s)"; fi; \
+	if [ -n "$(strip $(v))" ]; then RUN_ARGS="$$RUN_ARGS -v $(v)"; fi; \
+	RUN_ARGS="$$RUN_ARGS -p $(p)"; \
+	echo "Running: master with custom parameters"; \
+	./$(BIN_DIR)/master $$RUN_ARGS
 
 # Optional: build only one target
 master: $(BIN_DIR)/master
