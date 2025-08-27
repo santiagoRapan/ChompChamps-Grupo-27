@@ -9,6 +9,7 @@
 #include "structs.h"
 #include "game_functions.h"
 #include "ipc.h"
+#include <errno.h>
 
 #define COLOR_PLAYER_0 1
 #define COLOR_PLAYER_1 2
@@ -34,7 +35,7 @@ static game_sync_t* game_sync = NULL;
 
 static volatile sig_atomic_t running = 1;
 
-void cleanup_view() {
+void cleanup_view(void) {
     if(board_win) {
         delwin(board_win);
         board_win = NULL;
@@ -55,12 +56,13 @@ void cleanup_view() {
 }
 
 void signal_handler(int sig) {
+    (void)sig; // avoid unused parameter warning
     running = 0;
     cleanup_view();
     exit(0);
 }
 
-void read_lock() {
+void read_lock(void) {
     sem_wait(&game_sync->writer_mutex);      // Prevenir master starvation
     sem_wait(&game_sync->reader_count_mutex); // Protejer reader counter
     game_sync->readers_count++;              // Incrementar reader count
@@ -71,7 +73,7 @@ void read_lock() {
     sem_post(&game_sync->writer_mutex);      // Permito otros lectores 
 }
 
-void read_unlock() {
+void read_unlock(void) {
     sem_wait(&game_sync->reader_count_mutex); // Protejer reader counter
     game_sync->readers_count--;              // Decrementar reader count
     if (game_sync->readers_count == 0) {     // Ultimo lector?
@@ -80,7 +82,7 @@ void read_unlock() {
     sem_post(&game_sync->reader_count_mutex); // Release counter protection
 }
 
-int init_ncurses() {
+int init_ncurses(void) {
     if(initscr() == NULL) {
         fprintf(stderr, "Error al inicializar ncurses\n");
         return -1;
@@ -152,7 +154,7 @@ int init_ncurses() {
     return 0;
 }
 
-void draw_window_titles() {
+void draw_window_titles(void) {
     // Titulo principal
     attron(COLOR_PAIR(COLOR_HEADER) | A_BOLD);
     mvprintw(0, (COLS - 35) / 2, "=== ChompChamps - Game View ===");
@@ -168,7 +170,7 @@ void draw_window_titles() {
     mvprintw(max_y - 8, 2, "Game Information");
 }
 
-void draw_game_board(){
+void draw_game_board(void){
     werase(board_win);
     box(board_win, 0, 0);
     
@@ -234,7 +236,7 @@ void draw_game_board(){
     wrefresh(board_win);
 }
 
-void draw_player_status() {
+void draw_player_status(void) {
     werase(status_win);
     box(status_win, 0, 0);
     
@@ -275,7 +277,7 @@ void draw_player_status() {
     wrefresh(status_win);
 }
 
-void draw_game_info() {
+void draw_game_info(void) {
     werase(info_win);
     box(info_win, 0, 0);
     
@@ -320,8 +322,8 @@ void draw_game_info() {
     wrefresh(info_win);
 }
 
-void draw_complete_view(){
-    clear();
+void draw_complete_view(void){
+    //clear();
     draw_window_titles();
 
     read_lock();
@@ -330,7 +332,12 @@ void draw_complete_view(){
     draw_game_info();
     read_unlock();
 
-    refresh();
+    //Usa wnoutrefresh y doupdate para minimizar parpadeo
+    wnoutrefresh(board_win);
+    wnoutrefresh(status_win);
+    wnoutrefresh(info_win);
+    doupdate();
+    //refresh();
 }
 
 int main(int argc, char* argv[]){
@@ -344,7 +351,7 @@ int main(int argc, char* argv[]){
     
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
-    
+    if (getenv("TERM") == NULL) setenv("TERM", "xterm-256color", 1);
     if (init_ncurses() != 0) {
         return 1;
     }
@@ -368,6 +375,7 @@ int main(int argc, char* argv[]){
         timeout.tv_sec += 2; // 2 segundos timeout
         
         // Esperar notificación del máster con timeout
+        
         int sem_result = sem_timedwait(&game_sync->view_notify, &timeout);
         if (sem_result != 0) {
             read_lock();
@@ -375,6 +383,7 @@ int main(int argc, char* argv[]){
             read_unlock();
             
             if (game_over) {
+                sem_post(&game_sync->view_done);
                 break;
             }
             continue; // Reintentar

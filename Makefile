@@ -3,11 +3,10 @@ CC       := gcc
 CSTD     := -std=c99
 WARNS    := -Wall -Wextra -pedantic
 INCLUDES := -Iinclude
-CFLAGS   := $(CSTD) $(WARNS) $(INCLUDES)
+CFLAGS   := $(CSTD) $(WARNS) $(INCLUDES) 
 LDFLAGS  :=
 
-# Try to detect ncurses (wide -> regular). Override via: make NCURSES_LIBS="-lncurses"
-NCURSES_LIBS ?= $(shell pkg-config --libs ncursesw 2>/dev/null || pkg-config --libs ncurses 2>/dev/null || echo -lncursesw)
+NCURSES_LIBS := -lncurses
 
 # -------- dirs --------
 SRC_DIR  := src
@@ -50,7 +49,7 @@ container:
 
 # Install deps INSIDE the container
 ncurses:
-	apt-get update && apt-get install -y libncurses-dev pkg-config
+	apt install -y libncurses-dev
 
 # Example runs
 run_def:

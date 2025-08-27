@@ -130,6 +130,7 @@ int main(int argc, char * argv[]){
                 //REVISAR
         return -1;
     }
+    
     while(!game_state->is_game_over){
         sem_wait(&game_sync->player_turn[id]);
         int move = calculate_move();
