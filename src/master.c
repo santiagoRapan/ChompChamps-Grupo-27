@@ -272,7 +272,7 @@ static void game_loop(master_config_t *config) {
             }
         }
         
-        timeout.tv_sec = 1;
+        timeout.tv_sec = config->timeout;
         timeout.tv_usec = 0;
 
         int ready = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
