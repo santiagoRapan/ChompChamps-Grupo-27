@@ -226,11 +226,10 @@ void draw_game_board(void){
                     mvwprintw(board_win, screen_y, screen_x, "%-3d", cell_value);
                     wattroff(board_win, COLOR_PAIR(COLOR_CELL_VALUE) | A_BOLD);
                 } else {
-                    int playerid = cell_value*-1;
-                    int color_pair = COLOR_PLAYER_0 + (playerid % 9);
-                    wattron(board_win, COLOR_PAIR(color_pair)| A_REVERSE);
+                    int playerid = -cell_value;
+                    wattron(board_win, COLOR_PAIR(playerid)| A_REVERSE);
                     mvwprintw(board_win, screen_y, screen_x, "   ");
-                    wattroff(board_win, COLOR_PAIR(color_pair)| A_REVERSE);
+                    wattroff(board_win, COLOR_PAIR(playerid)| A_REVERSE);
                 }
             }
         }
