@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <semaphore.h>
+#include <stdint.h>
 
 #define DEFAULT_WIDTH 10
 #define DEFAULT_HEIGHT 10
@@ -346,7 +347,7 @@ static void game_loop(master_config_t *config) {
     game_state->is_game_over = true;
     sem_post(&game_sync->state_mutex);
 
-    notify_view_and_wait_ms(300);
+    notify_view_and_wait_ms(6000);
 }
 
 void terminate_all_processes(master_config_t* config){
@@ -400,9 +401,9 @@ void wait_for_processes(master_config_t* config){
             }
             
             if(WIFEXITED(status)){
-                printf("Jugador %d terminó con código %d, puntaje: %u\n", i, WEXITSTATUS(status), game_state->players[i].score);
+                printf("Jugador %d terminó con código %d, puntaje: %u\n", i + 1, WEXITSTATUS(status), game_state->players[i].score);
             }else if(WIFSIGNALED(status)){
-                printf("Jugador %d terminó por señal %d, puntaje: %u\n", i, WTERMSIG(status), game_state->players[i].score);
+                printf("Jugador %d terminó por señal %d, puntaje: %u\n", i + 1, WTERMSIG(status), game_state->players[i].score);
             }
         }
     }

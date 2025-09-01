@@ -16,5 +16,5 @@ void set_cell_owner(game_state_t* state, int x, int y, int player_id);
 void place_players_on_board(game_state_t* state);
 void apply_move(game_state_t* game_state,int  player_id, unsigned char move);
 int is_valid_move(game_state_t* state, int player_id, unsigned char move);
-
+int determine_winner(game_state_t* state);
 #endif

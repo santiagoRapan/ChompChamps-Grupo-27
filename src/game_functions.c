@@ -117,3 +117,28 @@ int is_valid_move(game_state_t* state, int player_id, unsigned char move) {
     
     return is_cell_free(state, new_x, new_y);
  }
+
+ int determine_winner(game_state_t* state) {
+    unsigned int winner = -1;
+    unsigned int max_score = 0;
+    unsigned int min_valid_moves;
+    unsigned int min_invalid_moves;
+    
+    for (unsigned int i = 0; i < state->player_count; i++) {
+        if (state->players[i].score > max_score) {
+            max_score = state->players[i].score;
+            min_valid_moves = state->players[i].valid_moves;
+            min_invalid_moves = state->players[i].invalid_moves;
+            winner =(int)i;
+        }else if (state->players[i].score == max_score) {
+            if (state->players[i].valid_moves < min_valid_moves) {
+                min_valid_moves = state->players[i].valid_moves;
+                winner = (int)i;
+            }else if(state->players[i].valid_moves == min_valid_moves && state->players[i].invalid_moves < min_invalid_moves) {
+                min_invalid_moves = state->players[i].invalid_moves;
+                winner = (int)i;
+            }
+        }
+    }
+    return winner;
+}

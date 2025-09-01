@@ -10,6 +10,7 @@
 #include "game_functions.h"
 #include "ipc.h"
 #include <errno.h>
+#include <string.h>
 
 #define COLOR_PLAYER_0 1
 #define COLOR_PLAYER_1 2
@@ -98,8 +99,8 @@ int init_ncurses(void) {
         init_pair(COLOR_PLAYER_4, COLOR_MAGENTA, COLOR_BLACK);
         init_pair(COLOR_PLAYER_5, COLOR_CYAN, COLOR_BLACK);
         init_pair(COLOR_PLAYER_6, COLOR_WHITE, COLOR_BLACK);
-        init_pair(COLOR_PLAYER_7, COLOR_RED, COLOR_BLUE);
-        init_pair(COLOR_PLAYER_8, COLOR_YELLOW, COLOR_BLUE);
+        init_pair(COLOR_PLAYER_7, COLOR_RED, COLOR_BLACK);
+        init_pair(COLOR_PLAYER_8, COLOR_BLACK, COLOR_BLUE);
         
         // Otros elementos
         init_pair(COLOR_CELL_VALUE, COLOR_WHITE, COLOR_BLACK);
@@ -182,9 +183,8 @@ void draw_game_board(void){
     int required_width = game_state->width * 3 + 4;
     int required_height = game_state->height + 3;
     
-    if(required_width > max_board_width || required_height > max_board_height) {
+    if (required_width > max_board_width || required_height > max_board_height) {
         mvwprintw(board_win, win_height/2, (win_width - 20)/2, "Board too large for window");
-        //wrefresh(board_win);
         return;
     }
 
@@ -291,6 +291,54 @@ void draw_complete_view(void){
 
 }
 
+static void show_winner_banner(void) {
+    int winner_idx;
+    unsigned winner_score;
+
+    read_lock();
+    winner_idx   = determine_winner(game_state);
+    winner_score = game_state->players[winner_idx].score;
+    read_unlock();
+
+    const char *title = "¡PARTIDA TERMINADA!";
+    char line[128];
+    snprintf(line, sizeof(line),
+             "El ganador es el jugador %d con puntaje %u",
+             winner_idx + 1, winner_score);
+    const char *hint = "Cerrando..."; // no pidas tecla si el master te va a cerrar
+
+    int w = (int)strlen(title);
+    int tmp = (int)strlen(line);  if (tmp > w) w = tmp;
+    tmp = (int)strlen(hint);      if (tmp > w) w = tmp;
+    w += 4;
+    if (w > COLS - 2) w = COLS - 2;
+
+    int h = 5;
+    int y = (LINES - h) / 2;
+    int x = (COLS - w) / 2;
+
+    WINDOW *popup = newwin(h, w, y, x);
+    wattron(popup, COLOR_PAIR(COLOR_FINISHED) | A_BOLD);
+    box(popup, 0, 0);
+    mvwprintw(popup, 1, (w - (int)strlen(title))/2, "%s", title);
+    mvwprintw(popup, 2, (w - (int)strlen(line))/2,  "%s", line);
+    wattroff(popup, COLOR_PAIR(COLOR_FINISHED) | A_BOLD);
+    mvwprintw(popup, h - 2, (w - (int)strlen(hint))/2, "%s", hint);
+
+    // draw popup on top of existing windows
+    wnoutrefresh(board_win);
+    wnoutrefresh(status_win);
+    wrefresh(popup);
+
+    // brief, non-blocking pause so it's visible before master proceeds
+    napms(1200);   // ~1.2s (keep this < master's final wait)
+
+    delwin(popup);
+    // don't call endwin() here; just restore underlying content
+    refresh();
+}
+
+
 int main(int argc, char* argv[]){
     if(argc != 3){
         fprintf(stderr, "Uso: %s <width> <height>\n", argv[0]);
@@ -334,8 +382,8 @@ int main(int argc, char* argv[]){
             read_unlock();
             
             if (game_over) {
+                show_winner_banner();
                 sem_post(&game_sync->view_done);
-
                 break;
             }
             continue; // Reintentar
@@ -343,17 +391,18 @@ int main(int argc, char* argv[]){
         
         draw_complete_view();
         
-        // Notificar al máster que terminamos de imprimir
-        sem_post(&game_sync->view_done);
-        
+        read_lock();
+        bool game_over = game_state->is_game_over;
+        read_unlock();
         // Salir si el juego terminó
-        if (game_state->is_game_over) {
-            mvprintw(LINES - 1, 0, "Presiona cualquier tecla para salir...");
-            refresh();
-            timeout(2000); // 2 second timeout
-            getch(); // Wait for key or timeout
+        if (game_over) {
+            show_winner_banner();
+            sem_post(&game_sync->view_done);
             break;
+
         }
+        // Notificar al máster que se terminó de dibujar
+        sem_post(&game_sync->view_done);
     }
     cleanup_view();
     return 0;
