@@ -10,7 +10,6 @@
 
 static game_state_t* game_state = NULL;
 static game_sync_t* game_sync = NULL;
-
 static int id = -1;
 
 static void find_my_id() {
@@ -48,16 +47,16 @@ void reader_exit() {
     sem_post(&game_sync->reader_count_mutex);
 }
 
-int evaluate_cell(int x, int y) {
-    if (!is_valid_position(game_state, x, y)) {
+int evaluate_cell(int* board, int x, int y, int width, int height) {
+    if (!is_valid_position(x, y, width, height)) {
         return -1000; // Posición inválida
     }
-    
-    if (!is_cell_free(game_state, x, y)) {
+     
+    if (!is_cell_free(board, x, y, width, height)) {
         return -1000; // Celda ocupada
     }
     
-    int reward = get_cell_value(game_state, x, y);
+    int reward = get_cell_value(board, x, y, width, height);
     int score = reward * 10; // Valor base de la recompensa
     
     // Bonificar celdas que nos acercan al centro (más opciones futuras)
@@ -71,28 +70,30 @@ int evaluate_cell(int x, int y) {
     for (int dir = 0; dir < 8; dir++) {
         int nx = x + MOVE_DELTAS[dir][0];
         int ny = y + MOVE_DELTAS[dir][1];
-        if (is_cell_free(game_state, nx, ny)) {
+        if (is_cell_free(board, nx, ny, width, height)) {
             free_neighbors++;
         }
     }
     return score + free_neighbors * 5;
 }
 
-static signed char calculate_move() {
-    int x = game_state->players[id].x;
-    int y = game_state->players[id].y;
+static signed char calculate_move(int* board,int x, int y, bool blocked, int width, int height) {
+    //sleep(1.5);
+    // int x = game_state->players[id].x;
+    // int y = game_state->players[id].y;
     int best = -1, best_score = -1;
 
     for (unsigned char d = 0; d < 8; d++) {
-        if (is_valid_move(game_state, id, d)) {
+        if (is_valid_move(board, d, x, y, blocked, width,  height)) {
             int nx = x + MOVE_DELTAS[(int)d][0];
             int ny = y + MOVE_DELTAS[(int)d][1];
-            int s = evaluate_cell(nx, ny);
+            int s = evaluate_cell(board, nx, ny, width, height);
             if (s > best_score) { best_score = s; best = d; }
         }
     }
     return (signed char)best;  // -1 if none
 }
+
 
 int main(int argc, char * argv[]){
     if(argc != 3){
@@ -114,25 +115,51 @@ int main(int argc, char * argv[]){
                 //REVISAR
         return -1;
     }
-    while(!game_state->is_game_over){
+    // while(!game_state->is_game_over){//esto dijo en clase que no
+    //     sem_wait(&game_sync->player_turn[id]);
+
+    //     reader_enter();
+    //     bool over = game_state->is_game_over;
+    //     reader_exit();
+
+    //     if (over) {
+    //         break;
+    //     }
+
+    //     reader_enter();
+    //     signed char move = calculate_move();
+    //     reader_exit();
+
+    //     if (move == -1) {
+    //         break; // No hay movimientos válidos, salir del bucle
+    //     } 
+    //     write(STDOUT_FILENO, &move, 1);
+    // }
+    bool game_over = false;
+    int copy[width*height];
+    int copy_x, copy_y, copy_blocked;
+    do{
         sem_wait(&game_sync->player_turn[id]);
-
         reader_enter();
-        bool over = game_state->is_game_over;
-        reader_exit();
+        game_over = game_state->is_game_over;
 
-        if (over) {
+        if(game_over){ 
+            reader_exit();
             break;
         }
-
-        reader_enter();
-        signed char move = calculate_move();
+        for(int i = 0; i < width*height; i++){
+            copy[i] = game_state->board[i];
+        }
+        copy_x = game_state->players[id].x;
+        copy_y = game_state->players[id].y;
+        copy_blocked = game_state->players[id].blocked;
         reader_exit();
 
-        if (move == -1) {
-            break; // No hay movimientos válidos, salir del bucle
-        } 
+        signed char move = calculate_move(copy, copy_x, copy_y, copy_blocked, width, height);
+        if(move == -1){
+            break;
+        }
         write(STDOUT_FILENO, &move, 1);
-    }
+    }while(!game_over);
     return 0;
 }

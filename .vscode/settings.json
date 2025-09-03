@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "*.dbclient-js": "javascript",
-        "game_functions.h": "c"
+        "game_functions.h": "c",
+        "structs.h": "c"
     }
 }

@@ -220,7 +220,7 @@ void draw_game_board(void){
                 mvwaddnstr(board_win, screen_y, screen_x, buf, 3);
                 wattroff(board_win, COLOR_PAIR(COLOR_PLAYER_0 + (player_at_pos % 9)) | A_BOLD);
             } else {
-                int cell_value = get_cell_value(game_state, x, y);
+                int cell_value = get_cell_value(game_state->board, x, y, game_state->width, game_state->height);
                 if (cell_value > 0) {
                     wattron(board_win, COLOR_PAIR(COLOR_CELL_VALUE) | A_BOLD);
                     mvwprintw(board_win, screen_y, screen_x, "%-3d", cell_value);

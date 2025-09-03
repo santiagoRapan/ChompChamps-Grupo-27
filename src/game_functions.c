@@ -30,28 +30,27 @@ void initialize_board(game_state_t* state, unsigned int seed) {
     }
 }
 
-
-bool is_valid_position(game_state_t* state, int x, int y) {
-    return x >= 0 && x < state->width && y >= 0 && y < state->height;
+bool is_valid_position(int x, int y, int width, int height) {
+    return x >= 0 && x < width && y >= 0 && y < height;
 }
 
-bool is_cell_free(game_state_t* state, int x, int y) {
-    if(!is_valid_position(state, x, y)){
+bool is_cell_free(int* board, int x, int y, int width, int height) {
+    if(!is_valid_position(x, y, width, height)){
         return false;
     }
-    int cell_value = state->board[y * state->width + x];
+    int cell_value = board[y * width + x];
     return cell_value > 0; // Valores positivos = celdas libres
 }
 
-int get_cell_value(game_state_t* state, int x, int y) {
-    if (!is_valid_position(state, x, y)) {
+int get_cell_value(int* board, int x, int y, int width, int height) {
+    if (!is_valid_position(x, y, width, height)) {
         return -1;
     }
-    return state->board[y * state->width + x];
+    return board[y * width + x];
 }
 
 void set_cell_owner(game_state_t* state, int x, int y, int player_id) {
-    if (is_valid_position(state, x, y)) {
+    if (is_valid_position(x, y, state->width, state->height)) {
         state->board[y * state->width + x] = -(player_id + 1);
     }
 }
@@ -85,7 +84,7 @@ void apply_move(game_state_t* game_state,int  player_id, unsigned char move) {//
     int new_x = current_x + MOVE_DELTAS[move][0];
     int new_y = current_y + MOVE_DELTAS[move][1];
 
-    int reward = get_cell_value(game_state, new_x, new_y);
+    int reward = get_cell_value(game_state->board, new_x, new_y, game_state->width, game_state->height);
 
     game_state->players[player_id].x = new_x;
     game_state->players[player_id].y = new_y;
@@ -96,26 +95,26 @@ void apply_move(game_state_t* game_state,int  player_id, unsigned char move) {//
     game_state->players[player_id].valid_moves++;
 }
 
-int is_valid_move(game_state_t* state, int player_id, unsigned char move) {
+int is_valid_move(int* board, unsigned char move, int x, int y, bool blocked, int width, int height) {
     if (move > 7) {
         return false;
     }
     
-    if (player_id < 0 || (unsigned int)player_id >= state->player_count) {
-        return false;
-    }
+    // // if (player_id < 0 || (unsigned int)player_id >= state->player_count) {
+    // //     return false;
+    // // }
     
-    if (state->players[player_id].blocked) {
-        return false;
-    }
+    if (blocked){return false;}
     
-    int current_x = state->players[player_id].x;
-    int current_y = state->players[player_id].y;
+    // int current_x = state->players[player_id].x;
+    // int current_y = state->players[player_id].y;
+    int current_x = x; 
+    int current_y = y;  
     
     int new_x = current_x + MOVE_DELTAS[move][0];
     int new_y = current_y + MOVE_DELTAS[move][1];
     
-    return is_cell_free(state, new_x, new_y);
+    return is_cell_free(board, new_x, new_y, width, height);
  }
 
  int determine_winner(game_state_t* state) {

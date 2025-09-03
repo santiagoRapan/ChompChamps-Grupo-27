@@ -20,7 +20,7 @@
 #define DEFAULT_WIDTH 10
 #define DEFAULT_HEIGHT 10
 #define DEFAULT_DELAY 200 //MILISEGUNDOS
-#define DEFAULT_TIMEOUT 100
+#define DEFAULT_TIMEOUT 10
 
 typedef struct {
     int width;
@@ -322,7 +322,7 @@ static void game_loop(master_config_t *config) {
             sem_wait(&game_sync->writer_mutex);
             sem_wait(&game_sync->state_mutex);
 
-            if (is_valid_move(game_state, id, move)) {
+            if (is_valid_move(game_state->board, move, game_state->players[id].x, game_state->players[id].y, game_state->players[id].blocked, game_state->width, game_state->height)) {
                 apply_move(game_state, id, move);
                 // DO NOT double-increment valid_moves here; apply_move already does it.
                 last_move = time(NULL);
