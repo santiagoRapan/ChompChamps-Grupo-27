@@ -16,6 +16,7 @@
 #include <limits.h>
 #include <semaphore.h>
 #include <stdint.h>
+#include <stdatomic.h>
 
 #define DEFAULT_WIDTH 10
 #define DEFAULT_HEIGHT 10
@@ -41,10 +42,11 @@ typedef struct {
 
 static game_state_t* game_state = NULL;
 static game_sync_t* game_sync = NULL;
-static player_process_t players[MAX_PLAYERS];
+static player_process_t players[MAX_PLAYERS] = {0}; //evita hacerle kill a los jugadores inexistentes por ejemplo
 static pid_t view_pid = -1;
 static int state_shm_fd = -1;
 static int sync_shm_fd = -1;
+static volatile sig_atomic_t interrupted = 0; //para saber si hubo un ctrl+c
 
 static inline bool all_players_blocked_or_inactive(const master_config_t* cfg) {
     for (int i = 0; i < cfg->player_count; i++) {
@@ -229,9 +231,15 @@ pid_t create_view_process(const char* view_path, master_config_t *config){
 }
 
 void signal_handler(int sig __attribute__((unused))) {
-    clear_resources();
-    exit(1);
+    // Solo setea el flag y manda SIGTERM a los hijos
+    interrupted = 1;
+
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (players[i].pid > 0) kill(players[i].pid, SIGTERM);
+    }
+    if (view_pid > 0) kill(view_pid, SIGTERM);
 }
+
 
 
 
@@ -257,6 +265,11 @@ static void game_loop(master_config_t *config) {
 
 
     while (!game_state->is_game_over) {
+        if(interrupted){
+            printf("Ctrl+C detectado, limpiando...\n");
+            break;
+        }
+
         if(time(NULL) - last_move > config->timeout) {
             break;
         }
@@ -357,6 +370,7 @@ void terminate_all_processes(master_config_t* config){
     for (int i = 0; i < config->player_count; i++) {
         if (players[i].pid > 0) {
             kill(players[i].pid, SIGTERM);
+            players[i].active = false;
         }
     }
     
@@ -430,6 +444,7 @@ void wait_for_processes(master_config_t* config){
 }
 
 int main(int argc, char *argv[]){
+    int exit_code = 0;
     master_config_t config;
     //en caso de recibir una senal (como ctrl+c) se limpian los recursos
     signal(SIGINT, signal_handler);
@@ -439,14 +454,14 @@ int main(int argc, char *argv[]){
 
     if(setup_shared_memory(&config) == -1) {
         fprintf(stderr, "Error al configurar la memoria compartida\n");
-        clear_resources();
-        return 1;
+        exit_code = 1;
+        goto clear;
     }
     for(int i=0; i<config.player_count; i++){
         if(create_player_process(config.player_paths[i], i, &config) == -1){
             fprintf(stderr, "Error al crear proceso jugador %d\n", i);
-            clear_resources();
-            return 1;
+            exit_code = 1;
+            goto clear;
         }
     }
 
@@ -454,21 +469,18 @@ int main(int argc, char *argv[]){
         view_pid = create_view_process(config.view_path, &config);
         if(view_pid == -1){
             fprintf(stderr, "Error al crear proceso vista\n");
-            clear_resources();
-            return 1;
+            exit_code = 1;
+            goto clear;
         }
     }
-
-
     game_loop(&config);
 
+    clear:
     terminate_all_processes(&config);
 
     wait_for_processes(&config);
 
     clear_resources();
-
-
-    return 0;
+    return interrupted? 0 : exit_code;
 }
 
