@@ -12,14 +12,14 @@
 
 
 const int MOVE_DELTAS[8][2] = {
-    {0, -1},  // UP
-    {1, -1},  // UP_RIGHT
-    {1, 0},   // RIGHT
-    {1, 1},   // DOWN_RIGHT
-    {0, 1},   // DOWN
-    {-1, 1},  // DOWN_LEFT
-    {-1, 0},  // LEFT
-    {-1, -1}  // UP_LEFT
+    {0, -1},  // ARRIBA
+    {1, -1},  // ARRIBA_DERCHA
+    {1, 0},   // DERECHA
+    {1, 1},   // ABAJO_DERECHA
+    {0, 1},   // ABAJO
+    {-1, 1},  // ABAJO_IZQUIERDA
+    {-1, 0},  // IZQUIERDA
+    {-1, -1}  // ARRIBA_IZQUIERDA
 };
 
 
@@ -100,14 +100,8 @@ int is_valid_move(int* board, unsigned char move, int x, int y, bool blocked, in
         return false;
     }
     
-    // // if (player_id < 0 || (unsigned int)player_id >= state->player_count) {
-    // //     return false;
-    // // }
-    
     if (blocked){return false;}
-    
-    // int current_x = state->players[player_id].x;
-    // int current_y = state->players[player_id].y;
+
     int current_x = x; 
     int current_y = y;  
     

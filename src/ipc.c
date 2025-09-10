@@ -34,14 +34,6 @@ int connect_to_shared_memory(const char* name, bool read_only) {
     return shm_fd;
 }
 
-int destroy_shared_memory(const char* name) {
-    if(shm_unlink(name) == -1){
-        perror("Error al destruir memoria compartida");
-        return -1;
-    }
-    return 0;
-}
-
 void *attach_shared_memory(int shm_fd, size_t size, bool read_only) {
     int prot = read_only ? PROT_READ : (PROT_READ | PROT_WRITE);
     void* ptr = mmap(0, size, prot, MAP_SHARED,shm_fd, 0);
@@ -127,8 +119,8 @@ void cleanup_semaphores(game_sync_t* sync, int player_count) {
 
 int is_executable_file(const char *path) {
     if (!path) return 0;
-    if (access(path, F_OK | X_OK) != 0) return 0; // exists & executable
+    if (access(path, F_OK | X_OK) != 0) return 0; // existe y es ejecutable
     struct stat st;
     if (stat(path, &st) != 0) return 0;
-    return S_ISREG(st.st_mode); // regular file
+    return S_ISREG(st.st_mode); // es un archivo regular
 }

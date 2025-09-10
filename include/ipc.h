@@ -8,7 +8,6 @@
 
 // memoria compartida
 int create_shared_memory(const char* name, size_t size);
-int destroy_shared_memory(const char* name);
 void *attach_shared_memory(int shm_fd, size_t size, bool read_only);
 void detach_shared_memory(void* addr, size_t size);
 void cleanup_shared_memory(game_state_t* gamestate, game_sync_t* gamesync);

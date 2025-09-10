@@ -78,9 +78,6 @@ int evaluate_cell(int* board, int x, int y, int width, int height) {
 }
 
 static signed char calculate_move(int* board,int x, int y, bool blocked, int width, int height) {
-    //sleep(1.5);
-    // int x = game_state->players[id].x;
-    // int y = game_state->players[id].y;
     int best = -1, best_score = -1;
 
     for (unsigned char d = 0; d < 8; d++) {
@@ -91,7 +88,7 @@ static signed char calculate_move(int* board,int x, int y, bool blocked, int wid
             if (s > best_score) { best_score = s; best = d; }
         }
     }
-    return (signed char)best;  // -1 if none
+    return (signed char)best;  // -1 si no encontro
 }
 
 
@@ -111,35 +108,16 @@ int main(int argc, char * argv[]){
     }
 
     find_my_id();
-    if(id==-1){ //no se si vale la pena chequear esto, seria muy raro que falle creo
-                //REVISAR
-        return -1;
+    if(id==-1){ 
+        return EXIT_FAILURE;
     }
-    // while(!game_state->is_game_over){//esto dijo en clase que no
-    //     sem_wait(&game_sync->player_turn[id]);
 
-    //     reader_enter();
-    //     bool over = game_state->is_game_over;
-    //     reader_exit();
-
-    //     if (over) {
-    //         break;
-    //     }
-
-    //     reader_enter();
-    //     signed char move = calculate_move();
-    //     reader_exit();
-
-    //     if (move == -1) {
-    //         break; // No hay movimientos válidos, salir del bucle
-    //     } 
-    //     write(STDOUT_FILENO, &move, 1);
-    // }
     bool game_over = false;
     int copy[width*height];
     int copy_x, copy_y, copy_blocked;
+    
     do{
-        sem_wait(&game_sync->player_turn[id]);
+        sem_wait(&game_sync->player_turn[id]); //post lo hace master (es su responsabilidad asignar turnos)
         reader_enter();
         game_over = game_state->is_game_over;
 

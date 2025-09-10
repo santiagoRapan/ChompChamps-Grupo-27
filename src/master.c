@@ -46,7 +46,7 @@ static player_process_t players[MAX_PLAYERS] = {0}; //evita hacerle kill a los j
 static pid_t view_pid = -1;
 static int state_shm_fd = -1;
 static int sync_shm_fd = -1;
-static volatile sig_atomic_t interrupted = 0; //para saber si hubo un ctrl+c
+static volatile sig_atomic_t interrupted = 0; //para saber si hubo una señal de interrupcion
 
 static inline bool all_players_blocked_or_inactive(const master_config_t* cfg) {
     for (int i = 0; i < cfg->player_count; i++) {
@@ -61,7 +61,7 @@ static void notify_view_and_wait_ms(long ms) {
     if (view_pid <= 0) return;
     sem_post(&game_sync->view_notify);
 
-    // Timed wait so we never deadlock if the view dies
+    //timed wait para evitar deadlocks si view muere
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     ts.tv_sec  += ms / 1000;
@@ -69,21 +69,30 @@ static void notify_view_and_wait_ms(long ms) {
     if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
 
     while (sem_timedwait(&game_sync->view_done, &ts) == -1) {
-        if (errno == EINTR) continue;  // retry if interrupted
-        break;                         // timed out or other error — continue anyway
+        if (errno == EINTR) continue;  // reintentar si hubo interrupcion
+        break;
     }
 }
 
 void clear_resources(){
-    int count = game_state ? game_state->player_count : 0;   // cache before unmap
-    cleanup_shared_memory(game_state, game_sync);
-    if (game_sync) cleanup_semaphores(game_sync, count);
-
-    if (state_shm_fd != -1) { close(state_shm_fd); clear_shm(GAME_STATE_SHM); }
-    if (sync_shm_fd  != -1) { close(sync_shm_fd);  clear_shm(GAME_SYNC_SHM);  }
+    int count = game_state ? game_state->player_count : 0;
+    if (game_sync) cleanup_semaphores(game_sync, count); //sem_destroy
+    cleanup_shared_memory(game_state, game_sync); //detach
+    
+    if (state_shm_fd != -1){
+        close(state_shm_fd); 
+        clear_shm(GAME_STATE_SHM); //unlink
+    }
+    if (sync_shm_fd  != -1){ 
+        close(sync_shm_fd);
+        clear_shm(GAME_SYNC_SHM); //unlink
+    }
 
     for (int i = 0; i < count; i++) {
-        if (players[i].pipe_fd != -1) { close(players[i].pipe_fd); players[i].pipe_fd = -1; }
+        if (players[i].pipe_fd != -1){
+            close(players[i].pipe_fd);
+            players[i].pipe_fd = -1;
+        }
     }
 }
 
@@ -163,6 +172,11 @@ int setup_shared_memory(master_config_t* config) {
 }
 
 pid_t create_player_process(const char* player_path, int player_id, master_config_t* config){
+    if (!is_executable_file(player_path)) {
+            perror("El player path no es valido");
+            return -1;
+    }
+
     int pipefd[2];
     if(pipe(pipefd) == -1){
         perror("Error al crear pipe");
@@ -181,18 +195,13 @@ pid_t create_player_process(const char* player_path, int player_id, master_confi
         close(pipefd[0]);
         if(dup2(pipefd[1], STDOUT_FILENO)<0){
             perror("Error haciendo el dup");
+            close(pipefd[1]);
             exit(1);
         }
         close(pipefd[1]);
         char width_str[16], height_str[16];
-        if (snprintf(width_str, sizeof(width_str), "%d", config->width) < 0 ||
-            snprintf(height_str, sizeof(height_str), "%d", config->height) < 0) {
+        if (snprintf(width_str, sizeof(width_str), "%d", config->width) < 0 || snprintf(height_str, sizeof(height_str), "%d", config->height) < 0){
             perror("Error formateando argumentos");
-            exit(1);
-        }
-
-        if (!is_executable_file(player_path)) {
-            perror("El player path no es valido");
             exit(1);
         }
         
@@ -241,8 +250,6 @@ void signal_handler(int sig __attribute__((unused))) {
 }
 
 
-
-
 static void game_loop(master_config_t *config) {
     fd_set read_fds;
     struct timeval timeout;
@@ -266,7 +273,7 @@ static void game_loop(master_config_t *config) {
 
     while (!game_state->is_game_over) {
         if(interrupted){
-            printf("Ctrl+C detectado, limpiando...\n");
+            printf("Señal de terminacion detectada, limpiando...\n");
             break;
         }
 
@@ -315,7 +322,7 @@ static void game_loop(master_config_t *config) {
             unsigned char move;
             ssize_t n = read(players[id].pipe_fd, &move, 1);
 
-            if (n == 0) { // EOF: player finished — mark blocked/inactive and close FD
+            if (n == 0) { // EOF: el jugador termino
                 game_state->players[id].blocked = true;
                 players[id].active = false;
                 close(players[id].pipe_fd);
@@ -323,21 +330,20 @@ static void game_loop(master_config_t *config) {
                 continue;
             }
             if (n < 0) {
-                if (errno == EINTR) continue;  // spurious
-                // treat as player gone
+                if (errno == EINTR) continue; //?
+                // actuo como si el jugador se fue
                 game_state->players[id].blocked = true;
                 players[id].active = false;
                 close(players[id].pipe_fd);
                 players[id].pipe_fd = -1;
                 continue;
             }
-            // Got 1 byte
+            
             sem_wait(&game_sync->writer_mutex);
             sem_wait(&game_sync->state_mutex);
 
             if (is_valid_move(game_state->board, move, game_state->players[id].x, game_state->players[id].y, game_state->players[id].blocked, game_state->width, game_state->height)) {
-                apply_move(game_state, id, move);
-                // DO NOT double-increment valid_moves here; apply_move already does it.
+                apply_move(game_state, id, move); //apply move icrementa valid_moves
                 last_move = time(NULL);
             } else {
                 game_state->players[id].invalid_moves++;
@@ -346,7 +352,7 @@ static void game_loop(master_config_t *config) {
             sem_post(&game_sync->state_mutex);
             sem_post(&game_sync->writer_mutex);
 
-            sem_post(&game_sync->player_turn[id]);   // let player decide next
+            sem_post(&game_sync->player_turn[id]);   // le permite al jugador hacer su movimiento
 
             notify_view_and_wait_ms(config->delay);
             nanosleep(&delay_ts, NULL);
@@ -446,9 +452,11 @@ void wait_for_processes(master_config_t* config){
 int main(int argc, char *argv[]){
     int exit_code = 0;
     master_config_t config;
-    //en caso de recibir una senal (como ctrl+c) se limpian los recursos
-    signal(SIGINT, signal_handler);
+    //en caso de recibir una senal para terminar el proceso (como ctrl+c) hay que limpiar los recursos
+    signal(SIGINT, signal_handler); //ctrl+c
     signal(SIGTERM, signal_handler);
+    signal(SIGQUIT, signal_handler); //ctrl+\, pero deberia ser contemplada
+    signal(SIGHUP,  signal_handler); //en caso de cerrar la terminal repentinamente
 
     parser(&config, argc, argv);
 
