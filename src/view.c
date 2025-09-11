@@ -26,6 +26,8 @@
 #define COLOR_BORDER 12
 #define COLOR_HEADER 13
 #define COLOR_FINISHED 14
+#define MIN_X 60
+#define MIN_Y 20
 
 static WINDOW *board_win = NULL;
 static WINDOW *status_win = NULL;
@@ -81,7 +83,7 @@ void read_unlock(void) {
 int init_ncurses(void) {
     if(initscr() == NULL) {
         fprintf(stderr, "Error al inicializar ncurses\n");
-        return -1;
+        return ERROR;
     }
     cbreak();
     noecho();
@@ -117,10 +119,10 @@ int init_ncurses(void) {
     (void)max_x; // max_x intentionally unused here; silence compiler warning
     
     // Verificar tamaño mínimo
-    if(max_y < 20 || max_x < 60) {
+    if(max_y < MIN_Y || max_x < MIN_X) {
         endwin();
         fprintf(stderr, "Terminal demasiado pequeña. Tamaño minimo: 60x20\n");
-        return -1;
+        return ERROR;
     }
 
     // Ventana del tablero
@@ -135,7 +137,7 @@ int init_ncurses(void) {
     if(!board_win || !status_win /*|| !info_win*/) {
         cleanup_view();
         fprintf(stderr, "Error al crear ventanas de vista\n");
-        return -1;
+        return ERROR;
     }
 
     // Permitir scrollear
@@ -304,7 +306,7 @@ static void show_winner_banner(void) {
     char line[128];
     snprintf(line, sizeof(line),
              "El ganador es el jugador %d con puntaje %u",
-             winner_idx + 1, winner_score);
+             winner_idx, winner_score);
     const char *hint = "Cerrando..."; // no pidas tecla si el master te va a cerrar
 
     int w = (int)strlen(title);
@@ -342,7 +344,7 @@ static void show_winner_banner(void) {
 int main(int argc, char* argv[]){
     if(argc != 3){
         fprintf(stderr, "Uso: %s <width> <height>\n", argv[0]);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     int width = atoi(argv[1]);
@@ -352,7 +354,7 @@ int main(int argc, char* argv[]){
     signal(SIGTERM, signal_handler);
     if (getenv("TERM") == NULL) setenv("TERM", "xterm-256color", 1);
     if (init_ncurses() != 0) {
-        return 1;
+        return EXIT_FAILURE;
     }
 
     game_state= setup_game_state(width,height);
@@ -360,7 +362,7 @@ int main(int argc, char* argv[]){
     if(game_state == NULL || game_sync == NULL){
         fprintf(stderr, "Error al inicializar el estado del juego o la sincronización\n");
         cleanup_view();
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // Mensaje inicial

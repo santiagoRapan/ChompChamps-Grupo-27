@@ -95,7 +95,7 @@ static signed char calculate_move(int* board,int x, int y, bool blocked, int wid
 int main(int argc, char * argv[]){
     if(argc != 3){
         fprintf(stderr, "Uso: %s <width> <height>\n", argv[0]);
-        return 1;
+        return EXIT_FAILURE;
     }
     int width = atoi(argv[1]);
     int height = atoi(argv[2]);
@@ -104,7 +104,7 @@ int main(int argc, char * argv[]){
     game_sync = setup_game_sync();
     if(!game_state || !game_sync){
         fprintf(stderr, "Error al inicializar el estado del juego o la sincronización\n");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     find_my_id();

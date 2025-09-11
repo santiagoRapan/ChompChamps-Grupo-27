@@ -57,15 +57,15 @@ void set_cell_owner(game_state_t* state, int x, int y, int player_id) {
 
 void place_players_on_board(game_state_t* state){
     int positions[][2] = {
-        {1, 1},                                    // Jugador 1
-        {state->width - 2, 1},                     // Jugador 2
-        {1, state->height - 2},                    // Jugador 3
-        {state->width - 2, state->height - 2},     // Jugador 4
-        {state->width / 2, 1},                     // Jugador 5
-        {1, state->height / 2},                    // Jugador 6
-        {state->width - 2, state->height / 2},     // Jugador 7
-        {state->width / 2, state->height - 2},     // Jugador 8
-        {state->width / 2, state->height / 2}      // Jugador 9
+        {1, 1},                                    // Jugador 0
+        {state->width - 2, 1},                     // Jugador 1
+        {1, state->height - 2},                    // Jugador 2
+        {state->width - 2, state->height - 2},     // Jugador 3
+        {state->width / 2, 1},                     // Jugador 4
+        {1, state->height / 2},                    // Jugador 5
+        {state->width - 2, state->height / 2},     // Jugador 6
+        {state->width / 2, state->height - 2},     // Jugador 7
+        {state->width / 2, state->height / 2}      // Jugador 8
     };
     
     for (unsigned int i = 0; i < state->player_count; i++) {

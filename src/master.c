@@ -109,10 +109,10 @@ void parser(master_config_t* config, int argc, char *argv[]){
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-w") == 0 && i + 1 < argc) {
             config->width = atoi(argv[++i]);
-            if (config->width < 10) config->width = 10;
+            if (config->width < DEFAULT_WIDTH) config->width = DEFAULT_WIDTH;
         } else if (strcmp(argv[i], "-h") == 0 && i + 1 < argc) {
             config->height = atoi(argv[++i]);
-            if (config->height < 10) config->height = 10;
+            if (config->height < DEFAULT_HEIGHT) config->height = DEFAULT_HEIGHT;
         } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
             config->delay = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
@@ -131,7 +131,7 @@ void parser(master_config_t* config, int argc, char *argv[]){
     
     if (config->player_count == 0) {
         fprintf(stderr, "Error: Se requiere al menos un jugador (-p)\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -174,13 +174,13 @@ int setup_shared_memory(master_config_t* config) {
 pid_t create_player_process(const char* player_path, int player_id, master_config_t* config){
     if (!is_executable_file(player_path)) {
             perror("El player path no es valido");
-            return -1;
+            return ERROR;
     }
 
     int pipefd[2];
     if(pipe(pipefd) == -1){
         perror("Error al crear pipe");
-        return -1;
+        return ERROR;
     }
 
     pid_t pid = fork();
@@ -188,7 +188,7 @@ pid_t create_player_process(const char* player_path, int player_id, master_confi
         perror("Error al crear proceso");
         close(pipefd[0]);
         close(pipefd[1]);
-        return -1;
+        return ERROR;
     }
 
     if(pid == 0){
@@ -196,18 +196,18 @@ pid_t create_player_process(const char* player_path, int player_id, master_confi
         if(dup2(pipefd[1], STDOUT_FILENO)<0){
             perror("Error haciendo el dup");
             close(pipefd[1]);
-            exit(1);
+            exit(EXIT_FAILURE);
         }
         close(pipefd[1]);
         char width_str[16], height_str[16];
         if (snprintf(width_str, sizeof(width_str), "%d", config->width) < 0 || snprintf(height_str, sizeof(height_str), "%d", config->height) < 0){
             perror("Error formateando argumentos");
-            exit(1);
+            exit(EXIT_FAILURE);
         }
         
         execl(player_path, player_path, width_str, height_str, NULL);
         perror("Error haciendo el execl");//no deberia llegar
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     close(pipefd[1]);
 
@@ -223,18 +223,18 @@ pid_t create_view_process(const char* view_path, master_config_t *config){
     int pid = fork();
     if(pid <0){
         perror("Error al crear proceso");
-        return -1;
+        return ERROR;
     }else if(pid == 0){
         char width_str[16], height_str[16];
         if (snprintf(width_str, sizeof(width_str), "%d", config->width) < 0 ||
             snprintf(height_str, sizeof(height_str), "%d", config->height) < 0) {
             perror("Error formateando argumentos");
-            exit(1);
+            exit(EXIT_FAILURE);
         }
         
         execl(view_path, view_path, width_str, height_str, NULL);
         perror("Error haciendo el execl");//no deberia llegar
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     return pid;
 }
@@ -421,9 +421,9 @@ void wait_for_processes(master_config_t* config){
             }
             
             if(WIFEXITED(status)){
-                printf("Jugador %d terminó con código %d, puntaje: %u\n", i + 1, WEXITSTATUS(status), game_state->players[i].score);
+                printf("Jugador %d terminó con código %d, puntaje: %u\n", i, WEXITSTATUS(status), game_state->players[i].score);
             }else if(WIFSIGNALED(status)){
-                printf("Jugador %d terminó por señal %d, puntaje: %u\n", i + 1, WTERMSIG(status), game_state->players[i].score);
+                printf("Jugador %d terminó por señal %d, puntaje: %u\n", i, WTERMSIG(status), game_state->players[i].score);
             }
         }
     }
@@ -450,7 +450,7 @@ void wait_for_processes(master_config_t* config){
 }
 
 int main(int argc, char *argv[]){
-    int exit_code = 0;
+    int exit_code = EXIT_SUCCESS;
     master_config_t config;
     //en caso de recibir una senal para terminar el proceso (como ctrl+c) hay que limpiar los recursos
     signal(SIGINT, signal_handler); //ctrl+c
@@ -462,13 +462,13 @@ int main(int argc, char *argv[]){
 
     if(setup_shared_memory(&config) == -1) {
         fprintf(stderr, "Error al configurar la memoria compartida\n");
-        exit_code = 1;
+        exit_code = EXIT_FAILURE;
         goto clear;
     }
     for(int i=0; i<config.player_count; i++){
         if(create_player_process(config.player_paths[i], i, &config) == -1){
             fprintf(stderr, "Error al crear proceso jugador %d\n", i);
-            exit_code = 1;
+            exit_code = EXIT_FAILURE;
             goto clear;
         }
     }
@@ -477,7 +477,7 @@ int main(int argc, char *argv[]){
         view_pid = create_view_process(config.view_path, &config);
         if(view_pid == -1){
             fprintf(stderr, "Error al crear proceso vista\n");
-            exit_code = 1;
+            exit_code = EXIT_FAILURE;
             goto clear;
         }
     }
@@ -489,6 +489,6 @@ int main(int argc, char *argv[]){
     wait_for_processes(&config);
 
     clear_resources();
-    return interrupted? 0 : exit_code;
+    return interrupted? exit_code : EXIT_SUCCESS;
 }
 

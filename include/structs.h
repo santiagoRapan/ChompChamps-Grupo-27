@@ -5,6 +5,7 @@
 #define GAME_STATE_SHM "/game_state"
 #define GAME_SYNC_SHM "/game_sync"
 #define MAX_NAME_LENGTH 16
+#define ERROR -1
 
 #include <sys/types.h>
 #include <semaphore.h>

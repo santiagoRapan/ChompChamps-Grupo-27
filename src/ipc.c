@@ -14,12 +14,12 @@ int create_shared_memory(const char* name, size_t size) {
     int shm_fd = shm_open(name, O_CREAT | O_RDWR, 0644);
     if (shm_fd == -1){
         perror("Error al crear memoria compartida");
-        return -1;
+        return ERROR;
     }
     if (ftruncate(shm_fd, size) == -1){
         perror("Error al configurar el tamaño de la memoria compartida");
         close(shm_fd);
-        return -1;
+        return ERROR;
     }
     return shm_fd;
 }
@@ -29,7 +29,7 @@ int connect_to_shared_memory(const char* name, bool read_only) {
     int shm_fd = shm_open(name, flags, 0);
     if (shm_fd == -1) {
         perror("shm_open connect");
-        return -1;
+        return ERROR;
     }
     return shm_fd;
 }
