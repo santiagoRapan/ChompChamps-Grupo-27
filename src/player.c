@@ -49,38 +49,38 @@ void reader_exit() {
 
 int evaluate_cell(int* board, int x, int y, int width, int height) {
     if (!is_valid_position(x, y, width, height)) {
-        return -1000; // Posición inválida
+        return INVALID_POSITION_SCORE; // Posición inválida
     }
      
     if (!is_cell_free(board, x, y, width, height)) {
-        return -1000; // Celda ocupada
+        return OCCUPIED_CELL_SCORE; // Celda ocupada
     }
     
     int reward = get_cell_value(board, x, y, width, height);
-    int score = reward * 10; // Valor base de la recompensa
+    int score = reward * BASE_REWARD_MULTIPLIER; // Valor base de la recompensa
     
     // Bonificar celdas que nos acercan al centro (más opciones futuras)
     int center_x = game_state->width / 2;
     int center_y = game_state->height / 2;
     int distance_to_center = abs(x - center_x) + abs(y - center_y);
-    score += (20 - distance_to_center); // Bonificar cercanía al centro
+    score += (CENTER_BONUS_MAX - distance_to_center); // Bonificar cercanía al centro
     
     // Contar celdas libres adyacentes (movilidad futura)
     int free_neighbors = 0;
-    for (int dir = 0; dir < 8; dir++) {
+    for (int dir = 0; dir < NUM_DIRECTIONS; dir++) {
         int nx = x + MOVE_DELTAS[dir][0];
         int ny = y + MOVE_DELTAS[dir][1];
         if (is_cell_free(board, nx, ny, width, height)) {
             free_neighbors++;
         }
     }
-    return score + free_neighbors * 5;
+    return score + free_neighbors * MOBILITY_BONUS;
 }
 
 static signed char calculate_move(int* board,int x, int y, bool blocked, int width, int height) {
     int best = -1, best_score = -1;
 
-    for (unsigned char d = 0; d < 8; d++) {
+    for (unsigned char d = 0; d < NUM_DIRECTIONS; d++) {
         if (is_valid_move(board, d, x, y, blocked, width,  height)) {
             int nx = x + MOVE_DELTAS[(int)d][0];
             int ny = y + MOVE_DELTAS[(int)d][1];
@@ -137,7 +137,7 @@ int main(int argc, char * argv[]){
         if(move == -1){
             break;
         }
-        write(STDOUT_FILENO, &move, 1);
+        write(STDOUT_FILENO, &move, MOVE_DATA_SIZE);
     }while(!game_over);
     return 0;
 }

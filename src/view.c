@@ -12,22 +12,22 @@
 #include <errno.h>
 #include <string.h>
 
-#define COLOR_PLAYER_0 1
-#define COLOR_PLAYER_1 2
-#define COLOR_PLAYER_2 3
-#define COLOR_PLAYER_3 4
-#define COLOR_PLAYER_4 5
-#define COLOR_PLAYER_5 6
-#define COLOR_PLAYER_6 7
-#define COLOR_PLAYER_7 8
-#define COLOR_PLAYER_8 9
-#define COLOR_CELL_VALUE 10
-#define COLOR_CAPTURED 11
-#define COLOR_BORDER 12
-#define COLOR_HEADER 13
-#define COLOR_FINISHED 14
-#define MIN_X 60
-#define MIN_Y 20
+#define COLOR_PLAYER_0 COLOR_PLAYER_0_PAIR
+#define COLOR_PLAYER_1 COLOR_PLAYER_1_PAIR
+#define COLOR_PLAYER_2 COLOR_PLAYER_2_PAIR
+#define COLOR_PLAYER_3 COLOR_PLAYER_3_PAIR
+#define COLOR_PLAYER_4 COLOR_PLAYER_4_PAIR
+#define COLOR_PLAYER_5 COLOR_PLAYER_5_PAIR
+#define COLOR_PLAYER_6 COLOR_PLAYER_6_PAIR
+#define COLOR_PLAYER_7 COLOR_PLAYER_7_PAIR
+#define COLOR_PLAYER_8 COLOR_PLAYER_8_PAIR
+#define COLOR_CELL_VALUE COLOR_CELL_VALUE_PAIR
+#define COLOR_CAPTURED COLOR_CAPTURED_PAIR
+#define COLOR_BORDER COLOR_BORDER_PAIR
+#define COLOR_HEADER COLOR_HEADER_PAIR
+#define COLOR_FINISHED COLOR_FINISHED_PAIR
+#define MIN_X MIN_TERMINAL_WIDTH
+#define MIN_Y MIN_TERMINAL_HEIGHT
 
 static WINDOW *board_win = NULL;
 static WINDOW *status_win = NULL;
@@ -83,7 +83,7 @@ void read_unlock(void) {
 int init_ncurses(void) {
     if(initscr() == NULL) {
         fprintf(stderr, "Error al inicializar ncurses\n");
-        return ERROR;
+        return ERR_GENERIC;
     }
     cbreak();
     noecho();
@@ -122,22 +122,22 @@ int init_ncurses(void) {
     if(max_y < MIN_Y || max_x < MIN_X) {
         endwin();
         fprintf(stderr, "Terminal demasiado pequeña. Tamaño minimo: 60x20\n");
-        return ERROR;
+        return ERR_GENERIC;
     }
 
     // Ventana del tablero
-    int board_height = max_y - 10;
-    int board_width = (max_x * 2) / 3;
-    int status_width = max_x - board_width - 3;
+    int board_height = max_y - WINDOW_BOTTOM_MARGIN;
+    int board_width = (max_x * BOARD_WIDTH_RATIO_NUM) / BOARD_WIDTH_RATIO_DEN;
+    int status_width = max_x - board_width - CELL_DISPLAY_WIDTH;
 
-    board_win = newwin(board_height, board_width, 2, 1);
-    status_win = newwin(board_height, status_width, 2, board_width + 2);
+    board_win = newwin(board_height, board_width, BOARD_WINDOW_Y_OFFSET, BOARD_WINDOW_X_OFFSET);
+    status_win = newwin(board_height, status_width, STATUS_WINDOW_Y_OFFSET, board_width + STATUS_WINDOW_X_GAP);
     //info_win = newwin(6, max_x - 2, board_height + 3, 1);
     
     if(!board_win || !status_win /*|| !info_win*/) {
         cleanup_view();
         fprintf(stderr, "Error al crear ventanas de vista\n");
-        return ERROR;
+        return ERR_GENERIC;
     }
 
     // Permitir scrollear
@@ -155,12 +155,12 @@ int init_ncurses(void) {
 void draw_window_titles(void) {
     // Titulo principal
     attron(COLOR_PAIR(COLOR_HEADER) | A_BOLD);
-    mvprintw(0, (COLS - 35) / 2, "=== ChompChamps - Game View ===");
+    mvprintw(0, (COLS - TITLE_CENTER_OFFSET) / 2, "=== ChompChamps - Game View ===");
     attroff(COLOR_PAIR(COLOR_HEADER) | A_BOLD);
     
     // Titulos de ventanas
     mvprintw(1, 2, "Game Board");
-    mvprintw(1, (COLS * 2) / 3 + 3, "Player Status");
+    mvprintw(1, (COLS * BOARD_WIDTH_RATIO_NUM) / BOARD_WIDTH_RATIO_DEN + CELL_DISPLAY_WIDTH, "Player Status");
     
     int max_y, max_x;
     getmaxyx(stdscr, max_y, max_x);
@@ -176,14 +176,14 @@ void draw_game_board(void){
     getmaxyx(board_win, win_height, win_width);
 
     // Layout
-    int board_start_y = 2;
-    int board_start_x = 3;
-    int max_board_width = win_width - 6;
-    int max_board_height = win_height - 4;
+    int board_start_y = BOARD_WINDOW_Y_OFFSET;
+    int board_start_x = CELL_DISPLAY_WIDTH;
+    int max_board_width = win_width - (2 * CELL_DISPLAY_WIDTH);
+    int max_board_height = win_height - BOARD_MARGIN;
     
     // Verificar que el tablero entre
-    int required_width = game_state->width * 3 + 4;
-    int required_height = game_state->height + 3;
+    int required_width = game_state->width * CELL_DISPLAY_WIDTH + BOARD_MARGIN;
+    int required_height = game_state->height + BOARD_HEADER_HEIGHT;
     
     if (required_width > max_board_width || required_height > max_board_height) {
         mvwprintw(board_win, win_height/2, (win_width - 20)/2, "Board too large for window");
@@ -194,7 +194,7 @@ void draw_game_board(void){
     mvwprintw(board_win, board_start_y, board_start_x, "   ");
     for (int x = 0; x < game_state->width; x++) {
         // Exactamente 3 fixed chars
-        mvwprintw(board_win, board_start_y, board_start_x + 3 + x * 3, "%2d ", x);
+        mvwprintw(board_win, board_start_y, board_start_x + CELL_DISPLAY_WIDTH + x * CELL_DISPLAY_WIDTH, "%2d ", x);
     }
 
     // Rows
@@ -203,7 +203,7 @@ void draw_game_board(void){
         mvwprintw(board_win, board_start_y + 1 + y, board_start_x, "%2d ", y);
 
         for (int x = 0; x < game_state->width; x++) {
-            const int screen_x = board_start_x + 3 + x * 3;
+            const int screen_x = board_start_x + CELL_DISPLAY_WIDTH + x * CELL_DISPLAY_WIDTH;
             const int screen_y = board_start_y + 1 + y;
 
             // Hay un jugador en x,y?
@@ -218,9 +218,9 @@ void draw_game_board(void){
             if (player_at_pos >= 0) {
                 char buf[4];
                 snprintf(buf, sizeof(buf), "P%-2d", player_at_pos);
-                wattron(board_win, COLOR_PAIR(COLOR_PLAYER_0 + (player_at_pos % 9)) | A_BOLD);
+                wattron(board_win, COLOR_PAIR(COLOR_PLAYER_0 + (player_at_pos % MAX_PLAYERS)) | A_BOLD);
                 mvwaddnstr(board_win, screen_y, screen_x, buf, 3);
-                wattroff(board_win, COLOR_PAIR(COLOR_PLAYER_0 + (player_at_pos % 9)) | A_BOLD);
+                wattroff(board_win, COLOR_PAIR(COLOR_PLAYER_0 + (player_at_pos % MAX_PLAYERS)) | A_BOLD);
             } else {
                 int cell_value = get_cell_value(game_state->board, x, y, game_state->width, game_state->height);
                 if (cell_value > 0) {
@@ -312,10 +312,10 @@ static void show_winner_banner(void) {
     int w = (int)strlen(title);
     int tmp = (int)strlen(line);  if (tmp > w) w = tmp;
     tmp = (int)strlen(hint);      if (tmp > w) w = tmp;
-    w += 4;
+    w += WINNER_POPUP_BORDER;
     if (w > COLS - 2) w = COLS - 2;
 
-    int h = 5;
+    int h = WINNER_POPUP_HEIGHT;
     int y = (LINES - h) / 2;
     int x = (COLS - w) / 2;
 
@@ -333,7 +333,7 @@ static void show_winner_banner(void) {
     wrefresh(popup);
 
     // brief, non-blocking pause so it's visible before master proceeds
-    napms(1200);   // ~1.2s (keep this < master's final wait)
+    napms(VIEW_REFRESH_DELAY_MS);   // ~1.2s (keep this < master's final wait)
 
     delwin(popup);
     // don't call endwin() here; just restore underlying content
@@ -373,7 +373,7 @@ int main(int argc, char* argv[]){
     while(running) {
         struct timespec timeout;
         clock_gettime(CLOCK_REALTIME, &timeout);
-        timeout.tv_sec += 2; // 2 segundos timeout
+        timeout.tv_sec += VIEW_WAIT_TIMEOUT_SEC; // 2 segundos timeout
         
         // Esperar notificación del máster con timeout
         

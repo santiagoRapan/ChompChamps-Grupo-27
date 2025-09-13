@@ -18,8 +18,8 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
-#define DEFAULT_WIDTH 10
-#define DEFAULT_HEIGHT 10
+#define DEFAULT_WIDTH MIN_BOARD_SIZE
+#define DEFAULT_HEIGHT MIN_BOARD_SIZE
 #define DEFAULT_DELAY 200 //MILISEGUNDOS
 #define DEFAULT_TIMEOUT 10
 
@@ -64,9 +64,9 @@ static void notify_view_and_wait_ms(long ms) {
     //timed wait para evitar deadlocks si view muere
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec  += ms / 1000;
-    ts.tv_nsec += (ms % 1000) * 1000000L;
-    if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
+    ts.tv_sec  += ms / MS_TO_SEC;
+    ts.tv_nsec += (ms % MS_TO_SEC) * MS_TO_NS;
+    if (ts.tv_nsec >= NS_PER_SEC) { ts.tv_sec++; ts.tv_nsec -= NS_PER_SEC; }
 
     while (sem_timedwait(&game_sync->view_done, &ts) == -1) {
         if (errno == EINTR) continue;  // reintentar si hubo interrupcion
@@ -109,10 +109,10 @@ void parser(master_config_t* config, int argc, char *argv[]){
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-w") == 0 && i + 1 < argc) {
             config->width = atoi(argv[++i]);
-            if (config->width < DEFAULT_WIDTH) config->width = DEFAULT_WIDTH;
+            if (config->width < MIN_BOARD_SIZE) config->width = MIN_BOARD_SIZE;
         } else if (strcmp(argv[i], "-h") == 0 && i + 1 < argc) {
             config->height = atoi(argv[++i]);
-            if (config->height < DEFAULT_HEIGHT) config->height = DEFAULT_HEIGHT;
+            if (config->height < MIN_BOARD_SIZE) config->height = MIN_BOARD_SIZE;
         } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
             config->delay = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
@@ -174,13 +174,13 @@ int setup_shared_memory(master_config_t* config) {
 pid_t create_player_process(const char* player_path, int player_id, master_config_t* config){
     if (!is_executable_file(player_path)) {
             perror("El player path no es valido");
-            return ERROR;
+            return ERR_GENERIC;
     }
 
     int pipefd[2];
     if(pipe(pipefd) == -1){
         perror("Error al crear pipe");
-        return ERROR;
+        return ERR_PIPE;
     }
 
     pid_t pid = fork();
@@ -188,7 +188,7 @@ pid_t create_player_process(const char* player_path, int player_id, master_confi
         perror("Error al crear proceso");
         close(pipefd[0]);
         close(pipefd[1]);
-        return ERROR;
+        return ERR_FORK;
     }
 
     if(pid == 0){
@@ -199,7 +199,7 @@ pid_t create_player_process(const char* player_path, int player_id, master_confi
             exit(EXIT_FAILURE);
         }
         close(pipefd[1]);
-        char width_str[16], height_str[16];
+        char width_str[ARG_BUFFER_SIZE], height_str[ARG_BUFFER_SIZE];
         if (snprintf(width_str, sizeof(width_str), "%d", config->width) < 0 || snprintf(height_str, sizeof(height_str), "%d", config->height) < 0){
             perror("Error formateando argumentos");
             exit(EXIT_FAILURE);
@@ -223,9 +223,9 @@ pid_t create_view_process(const char* view_path, master_config_t *config){
     int pid = fork();
     if(pid <0){
         perror("Error al crear proceso");
-        return ERROR;
+        return ERR_FORK;
     }else if(pid == 0){
-        char width_str[16], height_str[16];
+        char width_str[ARG_BUFFER_SIZE], height_str[ARG_BUFFER_SIZE];
         if (snprintf(width_str, sizeof(width_str), "%d", config->width) < 0 ||
             snprintf(height_str, sizeof(height_str), "%d", config->height) < 0) {
             perror("Error formateando argumentos");
@@ -263,8 +263,8 @@ static void game_loop(master_config_t *config) {
     notify_view_and_wait_ms(config->delay);
 
     struct timespec delay_ts = {
-        .tv_sec  = config->delay / 1000,
-        .tv_nsec = (config->delay % 1000) * 1000000L
+        .tv_sec  = config->delay / MS_TO_SEC,
+        .tv_nsec = (config->delay % MS_TO_SEC) * MS_TO_NS
     };
 
     int current_player = 0;
@@ -299,10 +299,13 @@ static void game_loop(master_config_t *config) {
         int ready = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
         if(ready == -1){
             if (errno == EINTR) {
+                if(interrupted) {
+                    break;
+                }
                 continue;
+            }
                 perror("Error en select");
                 break;
-            }
         }
         if (ready == 0) {
             continue; 
@@ -366,7 +369,7 @@ static void game_loop(master_config_t *config) {
     game_state->is_game_over = true;
     sem_post(&game_sync->state_mutex);
 
-    notify_view_and_wait_ms(6000);
+    notify_view_and_wait_ms(FINAL_VIEW_DISPLAY_MS);
 }
 
 void terminate_all_processes(master_config_t* config){
@@ -386,7 +389,7 @@ void terminate_all_processes(master_config_t* config){
     }
     
     // Dar tiempo para terminación graceful
-    sleep(1);
+    sleep(GRACEFUL_TERMINATION_WAIT_SEC);
     
     // Forzar terminación si es necesario
     for (int i = 0; i < config->player_count; i++) {
@@ -488,7 +491,9 @@ int main(int argc, char *argv[]){
 
     wait_for_processes(&config);
 
-    clear_resources();
-    return interrupted? exit_code : EXIT_SUCCESS;
+    if(interrupted) {
+        exit_code = EXIT_FAILURE;
+    }
+    return exit_code;
 }
 

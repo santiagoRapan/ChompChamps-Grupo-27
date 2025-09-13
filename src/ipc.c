@@ -11,25 +11,25 @@
 #include <semaphore.h>
 
 int create_shared_memory(const char* name, size_t size) {
-    int shm_fd = shm_open(name, O_CREAT | O_RDWR, 0644);
+    int shm_fd = shm_open(name, O_CREAT | O_RDWR, SHM_PERMISSIONS);
     if (shm_fd == -1){
         perror("Error al crear memoria compartida");
-        return ERROR;
+        return ERR_SHM;
     }
     if (ftruncate(shm_fd, size) == -1){
         perror("Error al configurar el tamaño de la memoria compartida");
         close(shm_fd);
-        return ERROR;
+        return ERR_SHM;
     }
     return shm_fd;
 }
 
 int connect_to_shared_memory(const char* name, bool read_only) {
     int flags = read_only ? O_RDONLY : O_RDWR;
-    int shm_fd = shm_open(name, flags, 0);
+    int shm_fd = shm_open(name, flags, SHM_CONNECT_PERMISSIONS);
     if (shm_fd == -1) {
         perror("shm_open connect");
-        return ERROR;
+        return ERR_SHM;
     }
     return shm_fd;
 }
@@ -93,15 +93,15 @@ game_sync_t* setup_game_sync(){
 }
 
 void initialize_semaphores(game_sync_t* sync, int player_count){
-    sem_init(&sync->view_notify, 1, 0);
-    sem_init(&sync->view_done, 1, 0);
-    sem_init(&sync->writer_mutex, 1, 1);
-    sem_init(&sync->state_mutex, 1, 1);
-    sem_init(&sync->reader_count_mutex, 1, 1);
+    sem_init(&sync->view_notify, SEM_SHARED_PROCESS, SEM_INITIAL_VALUE_SIGNAL);
+    sem_init(&sync->view_done, SEM_SHARED_PROCESS, SEM_INITIAL_VALUE_SIGNAL);
+    sem_init(&sync->writer_mutex, SEM_SHARED_PROCESS, SEM_INITIAL_VALUE_MUTEX);
+    sem_init(&sync->state_mutex, SEM_SHARED_PROCESS, SEM_INITIAL_VALUE_MUTEX);
+    sem_init(&sync->reader_count_mutex, SEM_SHARED_PROCESS, SEM_INITIAL_VALUE_MUTEX);
     sync->readers_count = 0;
     
     for (int i = 0; i < player_count; i++) {
-        sem_init(&sync->player_turn[i], 1, 1);
+        sem_init(&sync->player_turn[i], SEM_SHARED_PROCESS, SEM_INITIAL_VALUE_MUTEX);
     }
 }
 

@@ -11,7 +11,7 @@
 #include <semaphore.h>
 
 
-const int MOVE_DELTAS[8][2] = {
+const int MOVE_DELTAS[NUM_DIRECTIONS][2] = {
     {0, -1},  // ARRIBA
     {1, -1},  // ARRIBA_DERCHA
     {1, 0},   // DERECHA
@@ -26,7 +26,7 @@ const int MOVE_DELTAS[8][2] = {
 void initialize_board(game_state_t* state, unsigned int seed) {
     srand(seed);
     for (int i = 0; i < state->width * state->height; i++) {
-        state->board[i] = (rand() % 9) + 1;
+        state->board[i] = (rand() % MAX_CELL_VALUE) + MIN_CELL_VALUE;
     }
 }
 
@@ -51,20 +51,20 @@ int get_cell_value(int* board, int x, int y, int width, int height) {
 
 void set_cell_owner(game_state_t* state, int x, int y, int player_id) {
     if (is_valid_position(x, y, state->width, state->height)) {
-        state->board[y * state->width + x] = -(player_id + 1);
+        state->board[y * state->width + x] = -(player_id + PLAYER_ID_OFFSET);
     }
 }
 
 void place_players_on_board(game_state_t* state){
     int positions[][2] = {
-        {1, 1},                                    // Jugador 0
-        {state->width - 2, 1},                     // Jugador 1
-        {1, state->height - 2},                    // Jugador 2
-        {state->width - 2, state->height - 2},     // Jugador 3
-        {state->width / 2, 1},                     // Jugador 4
-        {1, state->height / 2},                    // Jugador 5
-        {state->width - 2, state->height / 2},     // Jugador 6
-        {state->width / 2, state->height - 2},     // Jugador 7
+        {PLAYER_POSITION_MARGIN, PLAYER_POSITION_MARGIN},                                    // Jugador 0
+        {state->width - PLAYER_POSITION_OFFSET, PLAYER_POSITION_MARGIN},                     // Jugador 1
+        {PLAYER_POSITION_MARGIN, state->height - PLAYER_POSITION_OFFSET},                    // Jugador 2
+        {state->width - PLAYER_POSITION_OFFSET, state->height - PLAYER_POSITION_OFFSET},     // Jugador 3
+        {state->width / 2, PLAYER_POSITION_MARGIN},                     // Jugador 4
+        {PLAYER_POSITION_MARGIN, state->height / 2},                    // Jugador 5
+        {state->width - PLAYER_POSITION_OFFSET, state->height / 2},     // Jugador 6
+        {state->width / 2, state->height - PLAYER_POSITION_OFFSET},     // Jugador 7
         {state->width / 2, state->height / 2}      // Jugador 8
     };
     
@@ -96,7 +96,7 @@ void apply_move(game_state_t* game_state,int  player_id, unsigned char move) {//
 }
 
 int is_valid_move(int* board, unsigned char move, int x, int y, bool blocked, int width, int height) {
-    if (move > 7) {
+    if (move > MOVE_UP_LEFT) {
         return false;
     }
     
