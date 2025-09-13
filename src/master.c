@@ -1,11 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
-#include "structs.h"
+#include "../include/structs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <time.h>
-#include "game_functions.h"
-#include "ipc.h"
+#include "../include/game_functions.h"
+#include "../include/ipc.h"
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
@@ -490,6 +490,8 @@ int main(int argc, char *argv[]){
     terminate_all_processes(&config);
 
     wait_for_processes(&config);
+
+    clear_resources();
 
     if(interrupted) {
         exit_code = EXIT_FAILURE;

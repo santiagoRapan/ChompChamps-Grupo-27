@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
-#include "ipc.h"
-#include "structs.h"
+#include "../include/ipc.h"
+#include "../include/structs.h"
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>

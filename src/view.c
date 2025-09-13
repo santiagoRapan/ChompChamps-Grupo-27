@@ -6,9 +6,9 @@
 #include <stdlib.h>
 #include <time.h>
 #include <signal.h>
-#include "structs.h"
-#include "game_functions.h"
-#include "ipc.h"
+#include "../include/structs.h"
+#include "../include/game_functions.h"
+#include "../include/ipc.h"
 #include <errno.h>
 #include <string.h>
 
