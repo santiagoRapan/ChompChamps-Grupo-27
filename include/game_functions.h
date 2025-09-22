@@ -17,4 +17,5 @@ void place_players_on_board(game_state_t* state);
 void apply_move(game_state_t* game_state,int  player_id, unsigned char move);
 int is_valid_move(int* board, unsigned char move, int x, int y, bool blocked, int width, int height);
 int determine_winner(game_state_t* state);
+bool is_player_blocked(int* board, int x, int y, int width, int height);
 #endif
