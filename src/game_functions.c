@@ -49,6 +49,17 @@ int get_cell_value(int* board, int x, int y, int width, int height) {
     return board[y * width + x];
 }
 
+bool is_player_blocked(int* board, int x, int y, int width, int height) {
+    for (int move = 0; move < 8; move++) {
+        int new_x = x + MOVE_DELTAS[move][0];
+        int new_y = y + MOVE_DELTAS[move][1];
+        if (is_cell_free(board, new_x, new_y, width, height)) {
+            return false; // Al menos un movimiento es posible
+        }
+    }
+    return true; // No hay movimientos posibles
+}
+
 void set_cell_owner(game_state_t* state, int x, int y, int player_id) {
     if (is_valid_position(x, y, state->width, state->height)) {
         state->board[y * state->width + x] = -(player_id + PLAYER_ID_OFFSET);
