@@ -351,7 +351,7 @@ static void game_loop(master_config_t *config) {
             } else {
                 game_state->players[id].invalid_moves++;
             }
-
+            game_state->players[id].blocked = is_player_blocked(game_state->board, game_state->players[id].x, game_state->players[id].y, game_state->width, game_state->height);
             sem_post(&game_sync->state_mutex);
             sem_post(&game_sync->writer_mutex);
 
